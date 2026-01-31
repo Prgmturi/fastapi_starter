@@ -1,0 +1,46 @@
+# =============================================================================
+# PostgreSQL per FastAPI
+# =============================================================================
+# Database dedicato all'applicazione FastAPI.
+# Separato dal database Keycloak per isolamento.
+#
+# Uso:
+#   docker compose up -d
+#
+# Connessione:
+#   - Host: localhost
+#   - Porta: 5433 (non 5432, per evitare conflitti)
+#   - Database: appbase
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL per FastAPI
+  # ---------------------------------------------------------------------------
+  app-db:
+    image: postgres:17-alpine
+    container_name: app-db
+    environment:
+      POSTGRES_DB: ${APP_DB_NAME}
+      POSTGRES_USER: ${APP_DB_USER}
+      POSTGRES_PASSWORD: ${APP_DB_PASSWORD}
+    volumes:
+      - app_db_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"  # Porta 5433 esterna, 5432 interna
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${APP_DB_USER} -d ${APP_DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+networks:
+  app-network:
+    name: app-network
+
+volumes:
+  app_db_data:
+    name: app_db_data
