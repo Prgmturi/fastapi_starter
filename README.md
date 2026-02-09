@@ -184,4 +184,27 @@ curl http://localhost:8000/auth/me \
 
 ---
 
+## Roadmap / Backlog
+
+Features planned for future releases:
+
+### High Priority
+- [ ] **Pytest setup** — Unit and integration tests
+- [ ] **GitHub Actions CI** — Automated testing on push/PR
+- [ ] **Pre-commit hooks** — Linting, formatting, type checking
+
+### Medium Priority
+- [ ] **Traefik + HTTPS** — Reverse proxy with automatic Let's Encrypt certificates
+- [ ] **Sentry integration** — Error tracking and performance monitoring
+- [ ] **Docker Compose production** — Production-ready stack in root
+
+### Low Priority / To Evaluate
+- [ ] **Copier support** — Interactive project generation
+- [ ] **SQLModel migration** — Evaluate switching from SQLAlchemy (post-1.0 release)
+- [ ] **Rate limiting** — API rate limiting middleware
+- [ ] **API versioning** — /v1/, /v2/ routing strategy
+
+
+---
+
 Made with 💚 and the lovely help of ☕ and 🤖
