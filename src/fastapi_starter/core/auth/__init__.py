@@ -25,4 +25,7 @@ __all__ = [
     "CollabUser",
     "get_auth_service",
     "require_roles",
+    #Others
+    "KeycloakClient",
+    "router",
 ]
