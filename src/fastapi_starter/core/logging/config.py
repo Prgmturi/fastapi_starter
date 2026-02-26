@@ -12,27 +12,27 @@ from fastapi_starter.core.logging.processors import (
 
 
 def get_processors(environment: str) -> list[Processor]:
-    # Shared processors for all environments.
-    # Order matters!
-    shared_processors: list[Processor] = [
-        # 1. Merge context variables (request_id, etc.)
-        structlog.contextvars.merge_contextvars,
-        # 2. Add log level ("info", "error", etc.)
-        structlog.processors.add_log_level,
-        # 3. Add ISO-formatted timestamp
-        structlog.processors.TimeStamper(fmt="iso"),
-        # 4. Add service info (name, version, environment)
-        add_service_info,
-        # 5. Remove internal keys
-        clean_event_dict,
-        # 6. Remove uvicorn's color_message key
-        drop_color_message_key,
-    ]
-
     if environment == "development":
-        # Development: colorized, human-readable output
-        return shared_processors + [
-            # Add callsite info (filename, line number, function)
+        # Development: minimal, colorized, human-readable output.
+        # No service info or callsite - keep it clean for local work.
+        return [
+            structlog.contextvars.merge_contextvars,
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="%H:%M:%S"),
+            clean_event_dict,
+            drop_color_message_key,
+            structlog.dev.ConsoleRenderer(
+                colors=True,
+                exception_formatter=structlog.dev.plain_traceback,
+            ),
+        ]
+    else:
+        # Production/Staging: JSON with full metadata for log aggregation.
+        return [
+            structlog.contextvars.merge_contextvars,
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            add_service_info,
             structlog.processors.CallsiteParameterAdder(
                 parameters=[
                     structlog.processors.CallsiteParameter.FILENAME,
@@ -40,18 +40,9 @@ def get_processors(environment: str) -> list[Processor]:
                     structlog.processors.CallsiteParameter.FUNC_NAME,
                 ]
             ),
-            # Colorized console renderer
-            structlog.dev.ConsoleRenderer(
-                colors=True,
-                exception_formatter=structlog.dev.plain_traceback,
-            ),
-        ]
-    else:
-        # Production/Staging: JSON output
-        return shared_processors + [
-            # Format exceptions as strings
+            clean_event_dict,
+            drop_color_message_key,
             structlog.processors.format_exc_info,
-            # JSON output
             structlog.processors.JSONRenderer(),
         ]
 
