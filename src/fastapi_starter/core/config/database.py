@@ -12,27 +12,27 @@ class DatabaseSettings(BaseSettings):
 
     driver: str = Field(
         default="postgresql+asyncpg",
-        description="Database's driver (es: postgresql+asyncpg)",
+        description="Database driver (e.g. postgresql+asyncpg)",
     )
     host: str = Field(
         default="localhost",
-        description="Database's host",
+        description="Database host",
     )
     port: int = Field(
         default=5432,
-        description="Database's port",
+        description="Database port",
     )
     name: str = Field(
         default="appbase",
-        description="Database's name",
+        description="Database name",
     )
     user: str = Field(
         default="postgres",
-        description="Username",
+        description="Database username",
     )
     password: str = Field(
         default="postgres",
-        description="Password",
+        description="Database password",
     )
 
     # Pool settings
@@ -42,28 +42,30 @@ class DatabaseSettings(BaseSettings):
     )
     pool_max_overflow: int = Field(
         default=10,
-        description="Extra connection",
+        description="Max overflow connections beyond pool_size",
     )
     pool_timeout: int = Field(
         default=5,
-        description="connection timeout"
+        description="Connection acquisition timeout in seconds",
     )
-    pool_recycle: int = Field (
-        default =1800,
-        description="check past unusued connection"
+    pool_recycle: int = Field(
+        default=1800,
+        description="Recycle connections older than this (seconds)",
     )
     echo: bool = Field(
         default=False,
-        description="Query SQL log",
+        description="Log SQL queries",
     )
 
     @computed_field
     @property
     def url(self) -> str:
-        return f"{self.driver}://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
+        return (
+            f"{self.driver}://{self.user}:{self.password}"
+            f"@{self.host}:{self.port}/{self.name}"
+        )
 
     @computed_field
     @property
     def url_safe(self) -> str:
-
         return f"{self.driver}://{self.user}:***@{self.host}:{self.port}/{self.name}"

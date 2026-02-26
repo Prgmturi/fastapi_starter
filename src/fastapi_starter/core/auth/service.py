@@ -62,25 +62,25 @@ class AuthService:
 
             return user
 
-        except ExpiredSignatureError:
+        except ExpiredSignatureError as e:
             logger.warning("token_expired")
-            raise UnauthorizedError("Token expired") from None
+            raise UnauthorizedError("Token expired") from e
 
         except InvalidTokenError as e:
             logger.warning("token_invalid", error=str(e))
-            raise UnauthorizedError("Invalid token") from None
+            raise UnauthorizedError("Invalid token") from e
 
         except ValueError as e:
             logger.warning("token_validation_failed", error=str(e))
-            raise UnauthorizedError(str(e)) from None
+            raise UnauthorizedError(str(e)) from e
 
         except PydanticValidationError as e:
             logger.warning("token_payload_invalid", error=str(e))
-            raise UnauthorizedError("Invalid token format") from None
+            raise UnauthorizedError("Invalid token format") from e
 
         except Exception as e:
             logger.error("unexpected_auth_error", error=str(e), exc_info=True)
-            raise UnauthorizedError("Authentication failed") from None
+            raise UnauthorizedError("Authentication failed") from e
 
     def _extract_user(self, payload: TokenPayload) -> User:
         """

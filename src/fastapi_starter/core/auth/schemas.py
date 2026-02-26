@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -37,8 +38,12 @@ class TokenPayload(BaseModel):
     family_name: str | None = Field(default=None, description="Last name")
 
     # Roles from Keycloak
-    realm_access: dict | None = Field(default=None, description="Realm-level roles")
-    resource_access: dict | None = Field(default=None, description="Client-level roles")
+    realm_access: dict[str, Any] | None = Field(
+        default=None, description="Realm-level roles"
+    )
+    resource_access: dict[str, Any] | None = Field(
+        default=None, description="Client-level roles"
+    )
 
 
 class User(BaseModel):

@@ -1,5 +1,5 @@
-
 from urllib.parse import urlencode
+
 import httpx
 
 from fastapi_starter.core.config.keycloak import KeycloakSettings
@@ -22,6 +22,11 @@ class KeycloakClient:
 
     def __init__(self, settings: KeycloakSettings) -> None:
         self._settings = settings
+        self._client = httpx.AsyncClient(timeout=settings.request_timeout)
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client."""
+        await self._client.aclose()
 
     @property
     def token_url(self) -> str:
@@ -148,30 +153,25 @@ class KeycloakClient:
         }
 
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    self.logout_url,
-                    data=data,
-                    timeout=self._settings.request_timeout,
+            response = await self._client.post(self.logout_url, data=data)
+
+            # 204 = success, 400 = token already invalid (ok)
+            if response.status_code not in (200, 204, 400):
+                logger.warning(
+                    "logout_failed",
+                    status_code=response.status_code,
+                    response=response.text,
                 )
 
-                # 204 = success, 400 = token already invalid (ok)
-                if response.status_code not in (200, 204, 400):
-                    logger.warning(
-                        "logout_failed",
-                        status_code=response.status_code,
-                        response=response.text,
-                    )
-
-                logger.info("user_logged_out")
+            logger.info("user_logged_out")
 
         except httpx.HTTPError as e:
             logger.error("logout_request_failed", error=str(e))
-            raise ExternalServiceError("Keycloak", str(e)) from None
+            raise ExternalServiceError("Keycloak", str(e)) from e
 
     async def _token_request(
         self,
-        data: dict,
+        data: dict[str, str],
         operation: str,
     ) -> TokenResponse:
         """
@@ -189,39 +189,40 @@ class KeycloakClient:
             ExternalServiceError: If Keycloak is unreachable
         """
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    self.token_url,
-                    data=data,
-                    timeout=self._settings.request_timeout,
+            response = await self._client.post(self.token_url, data=data)
+
+            if response.status_code == 400:
+                error_data = response.json()
+                error_desc = error_data.get("error_description", "Invalid request")
+                logger.warning(
+                    "token_request_failed",
+                    operation=operation,
+                    error=error_data.get("error"),
+                    description=error_desc,
                 )
+                raise UnauthorizedError(error_desc)
 
-                if response.status_code == 400:
-                    error_data = response.json()
-                    error_desc = error_data.get("error_description", "Invalid request")
-                    logger.warning(
-                        f"{operation}_failed",
-                        error=error_data.get("error"),
-                        description=error_desc,
-                    )
-                    raise UnauthorizedError(error_desc) from None
-
-                if response.status_code == 401:
-                    logger.warning(f"{operation}_unauthorized")
-                    raise UnauthorizedError("Invalid credentials") from None
-
-                response.raise_for_status()
-
-                token_data = response.json()
-                logger.debug(f"{operation}_success")
-
-                return TokenResponse(
-                    access_token=token_data["access_token"],
-                    refresh_token=token_data["refresh_token"],
-                    token_type=token_data.get("token_type", "Bearer"),
-                    expires_in=token_data.get("expires_in", 300),
+            if response.status_code == 401:
+                logger.warning(
+                    "token_request_unauthorized",
+                    operation=operation,
                 )
+                raise UnauthorizedError("Invalid credentials")
 
+            response.raise_for_status()
+
+            token_data = response.json()
+            logger.debug("token_request_success", operation=operation)
+
+            return TokenResponse(
+                access_token=token_data["access_token"],
+                refresh_token=token_data["refresh_token"],
+                token_type=token_data.get("token_type", "Bearer"),
+                expires_in=token_data.get("expires_in", 300),
+            )
+
+        except (UnauthorizedError, ExternalServiceError):
+            raise
         except httpx.HTTPError as e:
-            logger.error(f"{operation}_request_failed", error=str(e))
-            raise ExternalServiceError("Keycloak", str(e)) from None
+            logger.error("token_request_failed", operation=operation, error=str(e))
+            raise ExternalServiceError("Keycloak", str(e)) from e

@@ -12,28 +12,27 @@ from fastapi_starter.core.logging.processors import (
 
 
 def get_processors(environment: str) -> list[Processor]:
-
-    # Processors comuni a tutti gli ambienti
-    # L'ordine è importante!
+    # Shared processors for all environments.
+    # Order matters!
     shared_processors: list[Processor] = [
-        # 1. Merge delle context variables (request_id, etc.)
+        # 1. Merge context variables (request_id, etc.)
         structlog.contextvars.merge_contextvars,
-        # 2. Aggiunge il livello del log ("info", "error", etc.)
+        # 2. Add log level ("info", "error", etc.)
         structlog.processors.add_log_level,
-        # 3. Aggiunge timestamp in formato ISO
+        # 3. Add ISO-formatted timestamp
         structlog.processors.TimeStamper(fmt="iso"),
-        # 4. Aggiunge info sul servizio (nome, versione, ambiente)
+        # 4. Add service info (name, version, environment)
         add_service_info,
-        # 5. Rimuove chiavi interne
+        # 5. Remove internal keys
         clean_event_dict,
-        # 6. Rimuove color_message di uvicorn
+        # 6. Remove uvicorn's color_message key
         drop_color_message_key,
     ]
 
     if environment == "development":
-        # Sviluppo: output colorato e leggibile
+        # Development: colorized, human-readable output
         return shared_processors + [
-            # Aggiunge info su file, linea, funzione (utile per debug)
+            # Add callsite info (filename, line number, function)
             structlog.processors.CallsiteParameterAdder(
                 parameters=[
                     structlog.processors.CallsiteParameter.FILENAME,
@@ -41,18 +40,18 @@ def get_processors(environment: str) -> list[Processor]:
                     structlog.processors.CallsiteParameter.FUNC_NAME,
                 ]
             ),
-            # Renderer colorato per console
+            # Colorized console renderer
             structlog.dev.ConsoleRenderer(
                 colors=True,
                 exception_formatter=structlog.dev.plain_traceback,
             ),
         ]
     else:
-        # Produzione/Staging: output JSON
+        # Production/Staging: JSON output
         return shared_processors + [
-            # Formatta le eccezioni come stringa
+            # Format exceptions as strings
             structlog.processors.format_exc_info,
-            # Output JSON
+            # JSON output
             structlog.processors.JSONRenderer(),
         ]
 
@@ -62,65 +61,52 @@ def configure_logging(
     log_level: str = "INFO",
 ) -> None:
     """
-        Configura il sistema di logging per l'intera applicazione.
+    Configure the logging system for the entire application.
 
-        Questa funzione deve essere chiamata UNA VOLTA all'avvio
-        dell'applicazione, prima di qualsiasi log.
+    Must be called ONCE at application startup, before any logging.
 
-        Args:
-            environment: "development", "staging", o "production"
-            log_level: "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"
+    Args:
+        environment: "development", "staging", or "production"
+        log_level: "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"
 
-        Example:
+    Example:
     ```python
-            from fastapi_starter.core.logging import configure_logging
+        from fastapi_starter.core.logging import configure_logging
 
-            configure_logging(
-                environment="development",
-                log_level="DEBUG",
-            )
+        configure_logging(
+            environment="development",
+            log_level="DEBUG",
+        )
     ```
     """
-
-    # Converti stringa a livello numerico
+    # Convert string to numeric level
     level = getattr(logging, log_level.upper(), logging.INFO)
 
-    # Costruisci processors per l'ambiente
+    # Build processors for the environment
     processors = get_processors(environment)
 
-    # Configura structlog
+    # Configure structlog
     structlog.configure(
         processors=processors,
-        # Filtra log sotto il livello specificato
         wrapper_class=structlog.make_filtering_bound_logger(level),
-        # Usa dict standard per il contesto
         context_class=dict,
-        # Output su stdout
         logger_factory=structlog.PrintLoggerFactory(),
-        # Cache del logger per performance
         cache_logger_on_first_use=True,
     )
 
-    # Configura logging standard Python (per librerie esterne)
-    # Questo fa sì che uvicorn, sqlalchemy, httpx, etc.
-    # scrivano log nello stesso formato
-
-    # Rimuovi handler esistenti
+    # Configure standard Python logging (for external libraries).
+    # This ensures uvicorn, sqlalchemy, httpx, etc. use the same format.
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
 
-    # Crea handler che scrive su stdout
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(level)
-
-    # Formato semplice — structlog gestisce il resto
     handler.setFormatter(logging.Formatter("%(message)s"))
 
-    # Applica configurazione
     root_logger.addHandler(handler)
     root_logger.setLevel(level)
 
-    # Silenzia log troppo verbosi di alcune librerie
+    # Silence overly verbose libraries
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
@@ -128,21 +114,21 @@ def configure_logging(
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """
-        Ottiene un logger configurato.
+    Get a configured logger.
 
-        Args:
-            name: Nome opzionale del logger (es: nome del modulo).
-                  Se non specificato, structlog lo determina automaticamente.
+    Args:
+        name: Optional logger name (e.g. module name).
+              If not specified, structlog determines it automatically.
 
-        Returns:
-            Logger pronto all'uso
+    Returns:
+        Ready-to-use logger
 
-        Example:
+    Example:
     ```python
-            from fastapi_starter.core.logging import get_logger
+        from fastapi_starter.core.logging import get_logger
 
-            logger = get_logger(__name__)
-            logger.info("user_created", user_id=123)
+        logger = get_logger(__name__)
+        logger.info("user_created", user_id=123)
     ```
     """
     if name:

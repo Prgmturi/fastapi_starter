@@ -10,15 +10,15 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 
 class LoggingMiddleware(BaseHTTPMiddleware):
     """
-    Middleware che gestisce il logging per ogni richiesta HTTP.
+    Middleware that handles HTTP request/response logging.
 
-    Per ogni richiesta:
-    1. Genera un UUID come request_id
-    2. Lega request_id, method, path al contesto di logging
-    3. Logga l'inizio della richiesta
-    4. Esegue la richiesta
-    5. Logga la fine con durata e status code
-    6. Pulisce il contesto per la prossima richiesta
+    For each request:
+    1. Generates a UUID as request_id
+    2. Binds request_id, method, path to the logging context
+    3. Logs request start
+    4. Executes the request handler
+    5. Logs request completion with duration and status code
+    6. Clears context for the next request
 
     Example output:
         {"event": "request_started", "request_id": "abc-123", "method": "GET",
@@ -32,28 +32,23 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable,
     ) -> Response:
-        # Pulisci contesto da richieste precedenti
-        # Importante in ambiente async dove i worker sono riutilizzati
+        # Clear context from previous requests.
+        # Important in async environments where workers are reused.
         clear_contextvars()
 
-        # Genera request_id univoco
         request_id = str(uuid.uuid4())
 
-        # Lega informazioni al contesto
-        # Tutti i log da qui in poi avranno questi campi
+        # Bind info to context - all subsequent logs will include these fields
         bind_contextvars(
             request_id=request_id,
             method=request.method,
             path=request.url.path,
         )
 
-        # Ottieni logger
         logger = structlog.get_logger()
 
-        # Timestamp di inizio
         start_time = time.perf_counter()
 
-        # Log inizio richiesta
         logger.info(
             "request_started",
             query_params=dict(request.query_params) if request.query_params else None,
@@ -61,17 +56,15 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 
         response = await call_next(request)
 
-        # Calcola durata
         duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
-        # Log completamento
         logger.info(
             "request_completed",
             status_code=response.status_code,
             duration_ms=duration_ms,
         )
 
-        # Aggiungi request_id all'header della risposta
+        # Add request_id to response headers
         response.headers["X-Request-ID"] = request_id
 
         return response

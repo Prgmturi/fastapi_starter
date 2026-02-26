@@ -12,7 +12,6 @@ from fastapi_starter.core.auth.service import AuthService
 __all__ = [
     # Service
     "AuthService",
-    "AuthenticationError",
     # Schemas
     "User",
     "TokenPayload",
@@ -23,9 +22,5 @@ __all__ = [
     "AdminUser",
     "SuperAdminUser",
     "CollabUser",
-    "get_auth_service",
     "require_roles",
-    #Others
-    "KeycloakClient",
-    "router",
 ]

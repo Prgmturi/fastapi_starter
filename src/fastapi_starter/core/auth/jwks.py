@@ -13,6 +13,7 @@ logger = get_logger(__name__)
 class JWKSManager:
     def __init__(self, settings: KeycloakSettings) -> None:
         self._settings = settings
+        self._client = httpx.AsyncClient(timeout=settings.request_timeout)
         self._jwks: PyJWKSet | None = None
         self._last_refresh: float = 0
 
@@ -25,7 +26,11 @@ class JWKSManager:
         """Check if cached keys are still valid."""
         if self._jwks is None:
             return False
-        return (time.time() - self._last_refresh) < self._settings.jwks_cacache_ttl
+        return (time.time() - self._last_refresh) < self._settings.jwks_cache_ttl
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client."""
+        await self._client.aclose()
 
     async def refresh_keys(self) -> None:
         """
@@ -36,12 +41,9 @@ class JWKSManager:
         logger.debug("jwks_refresh_started", url=self.jwks_url)
 
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    self.jwks_url, timeout=self._settings.request_timeout
-                )
-                response.raise_for_status()
-                jwks_data = response.json()
+            response = await self._client.get(self.jwks_url)
+            response.raise_for_status()
+            jwks_data = response.json()
 
             self._jwks = PyJWKSet.from_dict(jwks_data)
             self._last_refresh = time.time()
@@ -52,6 +54,15 @@ class JWKSManager:
         except httpx.HTTPError as e:
             logger.error("jwks_refresh_failed", error=str(e))
             raise RuntimeError(f"Failed to fetch JWKS: {e}") from e
+
+    def _find_key(self, kid: str) -> PyJWK | None:
+        """Search for a key by ID in the cached JWKS."""
+        if self._jwks is None:
+            return None
+        for jwk in self._jwks.keys:
+            if jwk.key_id == kid:
+                return jwk
+        return None
 
     async def get_key(self, kid: str) -> PyJWK:
         """
@@ -64,30 +75,26 @@ class JWKSManager:
             Public key for signature verification
 
         Raises:
-            ValueError: If key not found
+            ValueError: If key not found after retry
         """
-        # Refresh if cache expired
         if not self._is_cache_valid():
             await self.refresh_keys()
 
-        # Try to find key
-        try:
-            for jwk in self._jwks.keys:
-                if jwk.key_id == kid:
-                    return jwk
-        except jwt.exceptions.PyJWKSetError:
-            # Key not found - maybe Keycloak rotated keys
-            # Try refreshing once more
-            logger.warning("jwks_key_not_found_retrying", kid=kid)
-            await self.refresh_keys()
+        # First attempt
+        key = self._find_key(kid)
+        if key is not None:
+            return key
 
-            try:
-                for jwk in self._jwks.keys:
-                    if jwk.key_id == kid:
-                        return jwk
-            except jwt.exceptions.PyJWKSetError as e:
-                logger.error("jwks_key_not_found", kid=kid)
-                raise ValueError(f"Key {kid} not found in JWKS") from e
+        # Key not found - maybe Keycloak rotated keys, try refreshing once
+        logger.warning("jwks_key_not_found_retrying", kid=kid)
+        await self.refresh_keys()
+
+        key = self._find_key(kid)
+        if key is not None:
+            return key
+
+        logger.error("jwks_key_not_found", kid=kid)
+        raise ValueError(f"Key {kid} not found in JWKS")
 
     async def get_signing_key_from_token(self, token: str) -> PyJWK:
         """
@@ -100,7 +107,6 @@ class JWKSManager:
             Public key for this token
         """
         try:
-            # Decode header without verification to get kid
             header = jwt.get_unverified_header(token)
             kid = header.get("kid")
 
@@ -122,10 +128,6 @@ class JWKSManager:
         Raises:
             httpx.HTTPError: If Keycloak is unreachable.
         """
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                self.jwks_url,
-                timeout=self._settings.request_timeout,
-            )
-            response.raise_for_status()
+        response = await self._client.get(self.jwks_url)
+        response.raise_for_status()
         return True

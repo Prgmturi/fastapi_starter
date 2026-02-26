@@ -29,7 +29,6 @@ def get_settings() -> Settings:
     return Settings()
 
 
-
 __all__ = [
     "Settings",
     "AppSettings",

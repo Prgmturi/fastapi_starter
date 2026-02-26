@@ -16,6 +16,7 @@ from fastapi_starter.core.logging import (
     configure_logging,
     get_logger,
 )
+from fastapi_starter.features.auth.client import KeycloakClient
 from fastapi_starter.features.auth.router import auth_router
 from fastapi_starter.features.health.router import health_router
 
@@ -30,7 +31,7 @@ logger = get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan handler for startup and shutdown events."""
     # Startup
     logger.info(
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     app.state.db_manager = db_manager
 
+    # Initialize auth services
     jwks_manager = JWKSManager(settings.keycloak)
     auth_service = AuthService(settings.keycloak, jwks_manager)
     try:
@@ -65,11 +67,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     app.state.auth_service = auth_service
 
+    # Initialize Keycloak client (shared across requests)
+    keycloak_client = KeycloakClient(settings.keycloak)
+    app.state.keycloak_client = keycloak_client
+
     yield
 
     # Shutdown
     logger.info("application_stopping")
-    await app.state.db_manager.disconnect()
+    await keycloak_client.close()
+    await jwks_manager.close()
+    await db_manager.disconnect()
     logger.info("application_stopped")
 
 
@@ -86,11 +94,11 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if settings.app.is_development else None,
     )
 
-    # Middleware: ORDINE IMPORTANTE
-    # I middleware sono eseguiti in ordine INVERSO rispetto a come li aggiungi
-    # Quindi LoggingMiddleware (aggiunto per ultimo) viene eseguito PER PRIMO
+    # Middleware: ORDER MATTERS
+    # Middleware execute in REVERSE order of how they are added.
+    # LoggingMiddleware (added last) executes FIRST.
 
-    # 1. CORS (eseguito per ultimo)
+    # 1. CORS (executes last)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.server.cors_origins,
@@ -99,7 +107,7 @@ def create_app() -> FastAPI:
         allow_headers=settings.server.cors_allow_headers,
     )
 
-    #  Logging
+    # 2. Logging (executes first)
     app.add_middleware(LoggingMiddleware)
 
     # Exception handlers
@@ -139,7 +147,7 @@ def create_app() -> FastAPI:
             "unhandled_exception",
             error_type=type(exc).__name__,
             error_message=str(exc),
-            path=request.url.path,  # Esplicito per sicurezza
+            path=request.url.path,
             method=request.method,
             exc_info=True,
         )

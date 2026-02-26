@@ -12,34 +12,34 @@ class ServerSettings(BaseSettings):
 
     host: str = Field(
         default="0.0.0.0",
-        description="Host su cui ascoltare",
+        description="Host to listen on",
     )
     port: int = Field(
         default=8000,
-        description="Porta su cui ascoltare",
+        description="Port to listen on",
     )
     workers: int = Field(
         default=1,
-        description="Numero di worker processes",
+        description="Number of worker processes",
     )
     timeout_keep_alive: int = Field(
-        default = 5,
-        description="timeout keep alive"
+        default=5,
+        description="Keep-alive timeout in seconds",
     )
     # CORS
     cors_origins: list[str] = Field(
         default=["http://localhost:3000", "http://localhost:5173"],
-        description="Origini permesse per CORS",
+        description="Allowed CORS origins",
     )
     cors_allow_credentials: bool = Field(
         default=True,
-        description="Permetti credentials in CORS",
+        description="Allow credentials in CORS requests",
     )
     cors_allow_methods: list[str] = Field(
         default=["*"],
-        description="Metodi HTTP permessi",
+        description="Allowed HTTP methods for CORS",
     )
     cors_allow_headers: list[str] = Field(
         default=["*"],
-        description="Headers permessi",
+        description="Allowed headers for CORS",
     )

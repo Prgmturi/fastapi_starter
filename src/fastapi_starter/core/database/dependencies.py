@@ -14,7 +14,8 @@ def get_db_manager(request: Request) -> DatabaseManager:
     The manager is stored in app.state during startup.
     """
     try:
-        return request.app.state.db_manager
+        manager: DatabaseManager = request.app.state.db_manager
+        return manager
     except AttributeError as err:
         raise RuntimeError("DatabaseManager not initialized") from err
 

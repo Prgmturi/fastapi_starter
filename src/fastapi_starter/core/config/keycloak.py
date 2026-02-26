@@ -12,7 +12,7 @@ class KeycloakSettings(BaseSettings):
 
     host: str = Field(
         default="localhost",
-        description="keycloak host ",
+        description="Keycloak host",
     )
     port: int = Field(
         default=8080,
@@ -20,7 +20,7 @@ class KeycloakSettings(BaseSettings):
     )
     scheme: str = Field(
         default="http",
-        description="Url schema (http o https)",
+        description="URL scheme (http or https)",
     )
     realm: str = Field(
         default="fastapi-starter",
@@ -34,13 +34,13 @@ class KeycloakSettings(BaseSettings):
         default="",
         description="Client secret (confidential client)",
     )
-    jwks_cacache_ttl: int = Field(
-        default= 3600,
+    jwks_cache_ttl: int = Field(
+        default=3600,
         description="JWKS cache expiration in seconds",
     )
     request_timeout: int = Field(
         default=30,
-        description="Request timeout fetch fresh key from Keycload"
+        description="Request timeout to fetch fresh keys from Keycloak",
     )
 
     @computed_field
