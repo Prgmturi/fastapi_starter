@@ -3,7 +3,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request, status
 
 from fastapi_starter.core.auth import CurrentUser
-from fastapi_starter.core.config import get_settings
 from fastapi_starter.features.auth.client import KeycloakClient
 from fastapi_starter.features.auth.schemas import (
     AuthUrlResponse,
@@ -12,19 +11,16 @@ from fastapi_starter.features.auth.schemas import (
     RefreshRequest,
     TokenRequest,
     TokenResponse,
+    UserResponse,
 )
 
 auth_router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 def get_keycloak_client(request: Request) -> KeycloakClient:
-    """
-    Get KeycloakClient instance.
-
-    Creates new instance per request (stateless).
-    """
-    settings = get_settings()
-    return KeycloakClient(settings.keycloak)
+    """Get KeycloakClient from app state."""
+    client: KeycloakClient = request.app.state.keycloak_client
+    return client
 
 
 @auth_router.get(
@@ -43,11 +39,11 @@ async def get_login_url(
         str,
         Query(description="PKCE code challenge (base64url SHA256 of verifier)"),
     ],
+    keycloak_client: Annotated[KeycloakClient, Depends(get_keycloak_client)],
     state: Annotated[
         str | None,
         Query(description="Optional state for CSRF protection"),
     ] = None,
-    keycloak_client: Annotated[KeycloakClient, Depends(get_keycloak_client)] = None,
 ) -> AuthUrlResponse:
     """
     Get authorization URL for OAuth login.
@@ -140,23 +136,24 @@ async def logout(
 
 @auth_router.get(
     "/me",
+    response_model=UserResponse,
     status_code=status.HTTP_200_OK,
     summary="Get current user",
     description="Get authenticated user information.",
 )
-async def get_me(user: CurrentUser) -> dict:
+async def get_me(user: CurrentUser) -> UserResponse:
     """
     Get current user info.
 
     Requires valid access token in Authorization header.
     """
-    return {
-        "id": user.id,
-        "username": user.username,
-        "email": user.email,
-        "email_verified": user.email_verified,
-        "first_name": user.first_name,
-        "last_name": user.last_name,
-        "full_name": user.full_name,
-        "roles": [r.value for r in user.roles],
-    }
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        email_verified=user.email_verified,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        full_name=user.full_name,
+        roles=[r.value for r in user.roles],
+    )

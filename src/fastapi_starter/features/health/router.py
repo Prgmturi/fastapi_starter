@@ -54,7 +54,7 @@ async def liveness() -> HealthResponse:
 async def readiness(
     db_manager: Annotated[DatabaseManager, Depends(get_db_manager)],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
-    ) -> ReadinessResponse:
+) -> ReadinessResponse:
     """Readiness probe - checks database connectivity."""
     checks: dict[str, Any] = {}
 
@@ -73,9 +73,7 @@ async def readiness(
         checks["keycloak"] = {"status": "unhealthy", "error": str(e)}
 
     # Determine overall status
-    all_healthy = all(
-        check.get("status") == "healthy" for check in checks.values()
-    )
+    all_healthy = all(check.get("status") == "healthy" for check in checks.values())
 
     return ReadinessResponse(
         status="healthy" if all_healthy else "unhealthy",

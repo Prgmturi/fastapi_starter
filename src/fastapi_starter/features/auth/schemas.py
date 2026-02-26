@@ -58,3 +58,16 @@ class MessageResponse(BaseModel):
     """Simple message response."""
 
     message: str = Field(description="Response message")
+
+
+class UserResponse(BaseModel):
+    """Authenticated user information."""
+
+    id: str = Field(description="Unique user ID")
+    username: str = Field(description="Username")
+    email: str | None = Field(default=None, description="Email address")
+    email_verified: bool = Field(default=False, description="Email verified flag")
+    first_name: str | None = Field(default=None, description="First name")
+    last_name: str | None = Field(default=None, description="Last name")
+    full_name: str | None = Field(default=None, description="Full name")
+    roles: list[str] = Field(default_factory=list, description="User roles")
