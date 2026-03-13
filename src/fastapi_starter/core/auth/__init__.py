@@ -4,19 +4,33 @@ from fastapi_starter.core.auth.dependencies import (
     CurrentUser,
     OptionalUser,
     SuperAdminUser,
+    get_auth_service,
     require_roles,
 )
-from fastapi_starter.core.auth.schemas import RoleEnum, TokenPayload, User
-from fastapi_starter.core.auth.service import AuthService
+from fastapi_starter.core.auth.protocols import (
+    ClaimExtractor,
+    HealthCheckable,
+    KeyProvider,
+    OAuthProvider,
+    TokenDecoder,
+    TokenValidator,
+)
+from fastapi_starter.core.auth.schemas import RoleEnum, TokenResponse, User
 
 __all__ = [
-    # Service
-    "AuthService",
+    # Protocols
+    "TokenValidator",
+    "TokenDecoder",
+    "ClaimExtractor",
+    "HealthCheckable",
+    "KeyProvider",
+    "OAuthProvider",
     # Schemas
     "User",
-    "TokenPayload",
+    "TokenResponse",
     "RoleEnum",
     # Dependencies
+    "get_auth_service",
     "CurrentUser",
     "OptionalUser",
     "AdminUser",

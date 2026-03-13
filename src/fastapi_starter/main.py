@@ -2,30 +2,20 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 
-from fastapi_starter.core.auth.jwks import JWKSManager
-from fastapi_starter.core.auth.service import AuthService
 from fastapi_starter.core.config import get_settings
-from fastapi_starter.core.database import DatabaseManager
-from fastapi_starter.core.exceptions import AppExceptionError
-from fastapi_starter.core.logging import (
-    LoggingMiddleware,
-    configure_logging,
-    get_logger,
-)
-from fastapi_starter.features.auth.client import KeycloakClient
+from fastapi_starter.core.logging import configure_logging, get_logger
+from fastapi_starter.exception_handlers import register_exception_handlers
 from fastapi_starter.features.auth.router import auth_router
 from fastapi_starter.features.health.router import health_router
-
-settings = get_settings()
-configure_logging(
-    environment=settings.app.environment,
-    log_level=settings.app.log_level,
+from fastapi_starter.setup import (
+    init_auth_service,
+    init_database,
+    init_oauth_provider,
+    register_middleware,
+    shutdown_services,
 )
-
 
 logger = get_logger(__name__)
 
@@ -33,7 +23,7 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan handler for startup and shutdown events."""
-    # Startup
+    settings = get_settings()
     logger.info(
         "application_started",
         app_name=settings.app.name,
@@ -42,47 +32,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         debug=settings.app.debug,
     )
 
-    # Initialize database connection pool
-    db_manager = DatabaseManager(settings.database)
-    await db_manager.connect()
-
-    try:
-        await db_manager.health_check()
-        logger.info("database_connected", url=settings.database.url_safe)
-    except Exception:
-        logger.exception("database_connection_failed")
-        raise
-
-    app.state.db_manager = db_manager
-
-    # Initialize auth services
-    jwks_manager = JWKSManager(settings.keycloak)
-    auth_service = AuthService(settings.keycloak, jwks_manager)
-    try:
-        await auth_service.initialize()
-        logger.info("auth_service_ready", issuer=auth_service.issuer)
-    except Exception as e:
-        logger.exception("auth_service_init_failed", error=str(e))
-        raise
-
-    app.state.auth_service = auth_service
-
-    # Initialize Keycloak client (shared across requests)
-    keycloak_client = KeycloakClient(settings.keycloak)
-    app.state.keycloak_client = keycloak_client
+    db_manager = await init_database(app.state)
+    jwks_manager = await init_auth_service(app.state)
+    keycloak_client = await init_oauth_provider(app.state)
 
     yield
 
-    # Shutdown
     logger.info("application_stopping")
-    await keycloak_client.close()
-    await jwks_manager.close()
-    await db_manager.disconnect()
+    await shutdown_services(db_manager, jwks_manager, keycloak_client)
     logger.info("application_stopped")
 
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    settings = get_settings()
+    configure_logging(
+        environment=settings.app.environment,
+        log_level=settings.app.log_level,
+    )
 
     app = FastAPI(
         title=settings.app.name,
@@ -94,73 +61,12 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if settings.app.is_development else None,
     )
 
-    # Middleware: ORDER MATTERS
-    # Middleware execute in REVERSE order of how they are added.
-    # LoggingMiddleware (added last) executes FIRST.
+    register_middleware(app)
+    register_exception_handlers(app)
 
-    # 1. CORS (executes last)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.server.cors_origins,
-        allow_credentials=settings.server.cors_allow_credentials,
-        allow_methods=settings.server.cors_allow_methods,
-        allow_headers=settings.server.cors_allow_headers,
-    )
-
-    # 2. Logging (executes first)
-    app.add_middleware(LoggingMiddleware)
-
-    # Exception handlers
-    @app.exception_handler(AppExceptionError)
-    async def app_exception_handler(
-        request: Request,
-        exc: AppExceptionError,
-    ) -> JSONResponse:
-        """Handle application-specific exceptions."""
-        logger.warning(
-            "app_exception",
-            error_type=type(exc).__name__,
-            message=exc.message,
-            details=exc.details,
-            status_code=exc.status_code,
-            path=request.url.path,
-            method=request.method,
-        )
-        headers = getattr(exc, "headers", None)
-
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"message": exc.message, "details": exc.details},
-            headers=headers,
-        )
-
-    @app.exception_handler(Exception)
-    async def unhandled_exception_handler(
-        request: Request,
-        exc: Exception,
-    ) -> JSONResponse:
-        """Handle any unhandled exception."""
-        if isinstance(exc, HTTPException):
-            raise exc
-
-        logger.error(
-            "unhandled_exception",
-            error_type=type(exc).__name__,
-            error_message=str(exc),
-            path=request.url.path,
-            method=request.method,
-            exc_info=True,
-        )
-        return JSONResponse(
-            status_code=500,
-            content={"message": "Internal server error", "details": {}},
-        )
-
-    # Include routers
     app.include_router(health_router)
     app.include_router(auth_router)
 
-    # Root endpoint
     @app.get("/", include_in_schema=False)
     async def root() -> dict[str, Any]:
         """Root endpoint with API information."""
@@ -174,13 +80,13 @@ def create_app() -> FastAPI:
     return app
 
 
-# Create application instance
 app = create_app()
 
 
 if __name__ == "__main__":
     import uvicorn
 
+    settings = get_settings()
     uvicorn.run(
         "fastapi_starter.main:app",
         host=settings.server.host,

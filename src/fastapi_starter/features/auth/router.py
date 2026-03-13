@@ -2,8 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, status
 
-from fastapi_starter.core.auth import CurrentUser
-from fastapi_starter.features.auth.client import KeycloakClient
+from fastapi_starter.core.auth import CurrentUser, OAuthProvider
 from fastapi_starter.features.auth.schemas import (
     AuthUrlResponse,
     LogoutRequest,
@@ -17,10 +16,10 @@ from fastapi_starter.features.auth.schemas import (
 auth_router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-def get_keycloak_client(request: Request) -> KeycloakClient:
-    """Get KeycloakClient from app state."""
-    client: KeycloakClient = request.app.state.keycloak_client
-    return client
+def get_oauth_provider(request: Request) -> OAuthProvider:
+    """Get OAuthProvider from app state."""
+    provider: OAuthProvider = request.app.state.oauth_provider
+    return provider
 
 
 @auth_router.get(
@@ -28,18 +27,18 @@ def get_keycloak_client(request: Request) -> KeycloakClient:
     response_model=AuthUrlResponse,
     status_code=status.HTTP_200_OK,
     summary="Get authorization URL",
-    description="Returns Keycloak authorization URL. Client redirects user here.",
+    description="Returns authorization URL. Client redirects user here.",
 )
 async def get_login_url(
     redirect_uri: Annotated[
         str,
-        Query(description="URI where Keycloak redirects after login"),
+        Query(description="URI where the provider redirects after login"),
     ],
     code_challenge: Annotated[
         str,
         Query(description="PKCE code challenge (base64url SHA256 of verifier)"),
     ],
-    keycloak_client: Annotated[KeycloakClient, Depends(get_keycloak_client)],
+    oauth_provider: Annotated[OAuthProvider, Depends(get_oauth_provider)],
     state: Annotated[
         str | None,
         Query(description="Optional state for CSRF protection"),
@@ -53,9 +52,9 @@ async def get_login_url(
     2. Calculate code_challenge = base64url(sha256(code_verifier))
     3. Call this endpoint with code_challenge
     4. Redirect user to returned authorization_url
-    5. After login, Keycloak redirects to redirect_uri with code
+    5. After login, provider redirects to redirect_uri with code
     """
-    authorization_url = keycloak_client.build_authorization_url(
+    authorization_url = oauth_provider.build_authorization_url(
         redirect_uri=redirect_uri,
         code_challenge=code_challenge,
         state=state,
@@ -73,19 +72,19 @@ async def get_login_url(
 )
 async def exchange_token(
     request: TokenRequest,
-    keycloak_client: Annotated[KeycloakClient, Depends(get_keycloak_client)],
+    oauth_provider: Annotated[OAuthProvider, Depends(get_oauth_provider)],
 ) -> TokenResponse:
     """
     Exchange authorization code for tokens.
 
     Client sends:
-    - code: from Keycloak callback
+    - code: from provider callback
     - code_verifier: original verifier (not the challenge)
     - redirect_uri: same as used in /login
 
     Returns access_token and refresh_token.
     """
-    return await keycloak_client.exchange_code(
+    return await oauth_provider.exchange_code(
         code=request.code,
         code_verifier=request.code_verifier,
         redirect_uri=request.redirect_uri,
@@ -101,7 +100,7 @@ async def exchange_token(
 )
 async def refresh_token(
     request: RefreshRequest,
-    keycloak_client: Annotated[KeycloakClient, Depends(get_keycloak_client)],
+    oauth_provider: Annotated[OAuthProvider, Depends(get_oauth_provider)],
 ) -> TokenResponse:
     """
     Refresh access token.
@@ -110,7 +109,7 @@ async def refresh_token(
     - Returns NEW access_token AND NEW refresh_token
     - Old refresh_token becomes invalid
     """
-    return await keycloak_client.refresh_token(request.refresh_token)
+    return await oauth_provider.refresh_token(request.refresh_token)
 
 
 @auth_router.post(
@@ -122,15 +121,15 @@ async def refresh_token(
 )
 async def logout(
     request: LogoutRequest,
-    keycloak_client: Annotated[KeycloakClient, Depends(get_keycloak_client)],
+    oauth_provider: Annotated[OAuthProvider, Depends(get_oauth_provider)],
 ) -> MessageResponse:
     """
     Logout user.
 
-    Revokes refresh token in Keycloak.
+    Revokes refresh token with the auth provider.
     Client should also clear local tokens.
     """
-    await keycloak_client.logout(request.refresh_token)
+    await oauth_provider.logout(request.refresh_token)
     return MessageResponse(message="Logged out successfully")
 
 

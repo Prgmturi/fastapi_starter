@@ -3,8 +3,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
-from fastapi_starter.core.auth.dependencies import get_auth_service
-from fastapi_starter.core.auth.service import AuthService
+from fastapi_starter.core.auth import TokenValidator, get_auth_service
 from fastapi_starter.core.config import get_settings
 from fastapi_starter.core.database.dependencies import get_db_manager
 from fastapi_starter.core.database.manager import DatabaseManager
@@ -53,9 +52,9 @@ async def liveness() -> HealthResponse:
 )
 async def readiness(
     db_manager: Annotated[DatabaseManager, Depends(get_db_manager)],
-    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+    auth_service: Annotated[TokenValidator, Depends(get_auth_service)],
 ) -> ReadinessResponse:
-    """Readiness probe - checks database connectivity."""
+    """Readiness probe - checks database and auth backend connectivity."""
     checks: dict[str, Any] = {}
 
     # Check database
@@ -65,12 +64,12 @@ async def readiness(
     except Exception as e:
         checks["database"] = {"status": "unhealthy", "error": str(e)}
 
-    # Check Keycloak
+    # Check auth backend (provider-agnostic)
     try:
         await auth_service.health_check()
-        checks["keycloak"] = {"status": "healthy"}
+        checks["auth"] = {"status": "healthy"}
     except Exception as e:
-        checks["keycloak"] = {"status": "unhealthy", "error": str(e)}
+        checks["auth"] = {"status": "unhealthy", "error": str(e)}
 
     # Determine overall status
     all_healthy = all(check.get("status") == "healthy" for check in checks.values())

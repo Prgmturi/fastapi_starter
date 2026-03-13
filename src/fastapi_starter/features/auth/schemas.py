@@ -1,5 +1,9 @@
 from pydantic import BaseModel, Field
 
+from fastapi_starter.core.auth.schemas import (
+    TokenResponse as TokenResponse,  # re-export
+)
+
 
 class TokenRequest(BaseModel):
     """Request to exchange authorization code for tokens."""
@@ -26,15 +30,6 @@ class RefreshRequest(BaseModel):
         min_length=1,
         description="Refresh token from previous token response",
     )
-
-
-class TokenResponse(BaseModel):
-    """Token response returned to client."""
-
-    access_token: str = Field(description="JWT access token")
-    refresh_token: str = Field(description="Refresh token for renewal")
-    token_type: str = Field(default="Bearer", description="Token type")
-    expires_in: int = Field(description="Access token lifetime in seconds")
 
 
 class LogoutRequest(BaseModel):

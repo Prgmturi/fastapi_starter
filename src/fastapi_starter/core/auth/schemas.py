@@ -1,7 +1,15 @@
 from enum import Enum
-from typing import Any
 
 from pydantic import BaseModel, EmailStr, Field
+
+
+class TokenResponse(BaseModel):
+    """Token response returned to client after OAuth2 code exchange or refresh."""
+
+    access_token: str = Field(description="JWT access token")
+    refresh_token: str = Field(description="Refresh token for renewal")
+    token_type: str = Field(default="Bearer", description="Token type")
+    expires_in: int = Field(description="Access token lifetime in seconds")
 
 
 class RoleEnum(str, Enum):
@@ -19,31 +27,6 @@ class RoleEnum(str, Enum):
     def staff(cls) -> list[str]:
         """Roles with elevated privileges."""
         return [cls.SUPERADMIN, cls.ADMIN]
-
-
-class TokenPayload(BaseModel):
-    sub: str = Field(description="Subject - unique user ID in Keycloak")
-    exp: int = Field(description="Expiration timestamp")
-    iat: int = Field(description="Issued at timestamp")
-    iss: str = Field(description="Issuer - Keycloak realm URL")
-    aud: str | list[str] | None = Field(
-        default=None, description="Audience - intended recipient"
-    )
-
-    # User info
-    preferred_username: str | None = Field(default=None, description="Username")
-    email: str | None = Field(default=None, description="User email")
-    email_verified: bool = Field(default=False, description="Email verified flag")
-    given_name: str | None = Field(default=None, description="First name")
-    family_name: str | None = Field(default=None, description="Last name")
-
-    # Roles from Keycloak
-    realm_access: dict[str, Any] | None = Field(
-        default=None, description="Realm-level roles"
-    )
-    resource_access: dict[str, Any] | None = Field(
-        default=None, description="Client-level roles"
-    )
 
 
 class User(BaseModel):

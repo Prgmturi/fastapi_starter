@@ -4,16 +4,16 @@ from typing import Annotated, Any
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from fastapi_starter.core.auth.protocols import TokenValidator
 from fastapi_starter.core.auth.schemas import RoleEnum, User
-from fastapi_starter.core.auth.service import AuthService
 from fastapi_starter.core.exceptions import UnauthorizedError
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def get_auth_service(request: Request) -> AuthService:
-    """Get AuthService from app state."""
-    service: AuthService = request.app.state.auth_service
+def get_auth_service(request: Request) -> TokenValidator:
+    """Get TokenValidator from app state."""
+    service: TokenValidator = request.app.state.auth_service
     return service
 
 
@@ -22,7 +22,7 @@ async def get_current_user(
         HTTPAuthorizationCredentials | None,
         Depends(bearer_scheme),
     ],
-    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+    auth_service: Annotated[TokenValidator, Depends(get_auth_service)],
 ) -> User:
     """
     Dependency that extracts and validates the current user.
@@ -46,7 +46,7 @@ async def get_optional_user(
         HTTPAuthorizationCredentials | None,
         Depends(bearer_scheme),
     ],
-    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+    auth_service: Annotated[TokenValidator, Depends(get_auth_service)],
 ) -> User | None:
     """
     Dependency that extracts user if token present, None otherwise.
@@ -63,7 +63,7 @@ async def get_optional_user(
 
 
 def require_roles(
-    required_roles: list[str],
+    required_roles: list[RoleEnum | str],
 ) -> Callable[..., Coroutine[Any, Any, User]]:
     """
     Factory for role-based access control dependency.

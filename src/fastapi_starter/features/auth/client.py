@@ -2,10 +2,10 @@ from urllib.parse import urlencode
 
 import httpx
 
+from fastapi_starter.core.auth.schemas import TokenResponse
 from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.core.exceptions import ExternalServiceError, UnauthorizedError
 from fastapi_starter.core.logging import get_logger
-from fastapi_starter.features.auth.schemas import TokenResponse
 
 logger = get_logger(__name__)
 
