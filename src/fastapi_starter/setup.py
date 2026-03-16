@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.datastructures import State
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from fastapi_starter.core.auth.extractors import KeycloakClaimExtractor
 from fastapi_starter.core.auth.jwks import JWKSTokenDecoder
@@ -88,7 +89,7 @@ def register_middleware(app: FastAPI) -> None:
     """Register middleware. ORDER MATTERS: execute in REVERSE add order."""
     settings = get_settings()
 
-    # 1. CORS (executes last)
+    # CORS (executes last)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.server.cors_origins,
@@ -97,5 +98,11 @@ def register_middleware(app: FastAPI) -> None:
         allow_headers=settings.server.cors_allow_headers,
     )
 
-    # 2. Logging (executes first)
+    #
+    # app.add_middleware(
+    #     TrustedHostMiddleware,
+    #     allowed_hosts=["yourdomain.com", "localhost"]
+    # )
+
+    # Logging (executes first)
     app.add_middleware(LoggingMiddleware)

@@ -8,7 +8,15 @@ details that the exception handler converts to HTTP responses. Wrong status
 code = wrong HTTP response. Wrong hierarchy = exception handler misses it.
 """
 
-import pytest
+from fastapi_starter.core.exceptions import (
+    AppExceptionError,
+    ConflictError,
+    ExternalServiceError,
+    ForbiddenError,
+    NotFoundError,
+    UnauthorizedError,
+    ValidationError,
+)
 
 
 class TestAppExceptionError:
@@ -20,19 +28,28 @@ class TestAppExceptionError:
 
     def test_default_status_code_is_500(self):
         """[HP] Without explicit status_code, defaults to 500."""
-        pytest.skip("Not implemented yet")
+        exc = AppExceptionError("something broke")
+
+        assert exc.status_code == 500
 
     def test_custom_status_code(self):
         """[HP] Custom status_code is stored correctly."""
-        pytest.skip("Not implemented yet")
+        exc = AppExceptionError("bad request", status_code=400)
+
+        assert exc.status_code == 400
 
     def test_details_default_to_empty_dict(self):
         """[HP] details=None -> stored as {}."""
-        pytest.skip("Not implemented yet")
+        exc = AppExceptionError("error")
+
+        assert exc.details == {}
 
     def test_message_stored_and_in_str(self):
         """[HP] message accessible as .message and via str(exc)."""
-        pytest.skip("Not implemented yet")
+        exc = AppExceptionError("test message")
+
+        assert exc.message == "test message"
+        assert str(exc) == "test message"
 
 
 class TestNotFoundError:
@@ -44,19 +61,27 @@ class TestNotFoundError:
 
     def test_status_code_is_404(self):
         """[HP] status_code == 404."""
-        pytest.skip("Not implemented yet")
+        exc = NotFoundError("User")
+
+        assert exc.status_code == 404
 
     def test_message_without_identifier(self):
         """[HP] message = '{resource} not found'."""
-        pytest.skip("Not implemented yet")
+        exc = NotFoundError("User")
+
+        assert exc.message == "User not found"
 
     def test_message_with_identifier(self):
         """[HP] message = '{resource} with id '{id}' not found'."""
-        pytest.skip("Not implemented yet")
+        exc = NotFoundError("User", identifier="abc-123")
+
+        assert exc.message == "User with id 'abc-123' not found"
 
     def test_details_include_resource_and_identifier(self):
         """[HP] details dict contains resource and identifier."""
-        pytest.skip("Not implemented yet")
+        exc = NotFoundError("User", identifier=42)
+
+        assert exc.details == {"resource": "User", "identifier": 42}
 
 
 class TestConflictError:
@@ -64,7 +89,9 @@ class TestConflictError:
 
     def test_status_code_is_409(self):
         """[HP] status_code == 409."""
-        pytest.skip("Not implemented yet")
+        exc = ConflictError("already exists")
+
+        assert exc.status_code == 409
 
 
 class TestValidationError:
@@ -72,7 +99,9 @@ class TestValidationError:
 
     def test_status_code_is_422(self):
         """[HP] status_code == 422."""
-        pytest.skip("Not implemented yet")
+        exc = ValidationError("invalid input")
+
+        assert exc.status_code == 422
 
 
 class TestUnauthorizedError:
@@ -84,15 +113,21 @@ class TestUnauthorizedError:
 
     def test_status_code_is_401(self):
         """[HP] status_code == 401."""
-        pytest.skip("Not implemented yet")
+        exc = UnauthorizedError()
+
+        assert exc.status_code == 401
 
     def test_default_message(self):
         """[HP] Default message is 'Authentication required'."""
-        pytest.skip("Not implemented yet")
+        exc = UnauthorizedError()
+
+        assert exc.message == "Authentication required"
 
     def test_default_headers_include_www_authenticate(self):
         """[HP] headers['WWW-Authenticate'] == 'Bearer'."""
-        pytest.skip("Not implemented yet")
+        exc = UnauthorizedError()
+
+        assert exc.headers == {"WWW-Authenticate": "Bearer"}
 
 
 class TestForbiddenError:
@@ -100,11 +135,15 @@ class TestForbiddenError:
 
     def test_status_code_is_403(self):
         """[HP] status_code == 403."""
-        pytest.skip("Not implemented yet")
+        exc = ForbiddenError()
+
+        assert exc.status_code == 403
 
     def test_default_message(self):
         """[HP] Default message is 'Permission denied'."""
-        pytest.skip("Not implemented yet")
+        exc = ForbiddenError()
+
+        assert exc.message == "Permission denied"
 
 
 class TestExternalServiceError:
@@ -116,15 +155,21 @@ class TestExternalServiceError:
 
     def test_status_code_is_502(self):
         """[HP] status_code == 502."""
-        pytest.skip("Not implemented yet")
+        exc = ExternalServiceError("Keycloak")
+
+        assert exc.status_code == 502
 
     def test_default_message_includes_service_name(self):
         """[HP] message = 'Error communicating with {service}'."""
-        pytest.skip("Not implemented yet")
+        exc = ExternalServiceError("Keycloak")
+
+        assert exc.message == "Error communicating with Keycloak"
 
     def test_details_include_service(self):
         """[HP] details['service'] == service name."""
-        pytest.skip("Not implemented yet")
+        exc = ExternalServiceError("Keycloak")
+
+        assert exc.details == {"service": "Keycloak"}
 
 
 class TestExceptionHierarchy:
@@ -138,4 +183,16 @@ class TestExceptionHierarchy:
     def test_all_subclasses_inherit_from_app_exception_error(self):
         """[CT] NotFound, Conflict, Validation, Unauthorized, Forbidden,
         ExternalService are all subclasses of AppExceptionError."""
-        pytest.skip("Not implemented yet")
+        subclasses = [
+            NotFoundError,
+            ConflictError,
+            ValidationError,
+            UnauthorizedError,
+            ForbiddenError,
+            ExternalServiceError,
+        ]
+
+        for cls in subclasses:
+            assert issubclass(cls, AppExceptionError), (
+                f"{cls.__name__} must inherit from AppExceptionError"
+            )

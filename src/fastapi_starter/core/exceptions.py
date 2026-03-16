@@ -41,7 +41,7 @@ class ValidationError(AppExceptionError):
     def __init__(self, message: str, field: str | None = None) -> None:
         super().__init__(
             message=message,
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             details={"field": field} if field else {},
         )
 

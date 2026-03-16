@@ -40,7 +40,7 @@ class User(BaseModel):
         max_length=50,
         pattern=r"^[a-zA-Z0-9_-]+$",
         description="Username (3-50 chars, alphanumeric + _ -)",
-        examples=["mario_rossi", "user-123"],
+        examples=["mario_rossi", "e37e9825-ac1c-4bd3-8380-579af43eac4823"],
     )
     email: EmailStr | None = Field(
         default=None, description="Email address (validated format)"

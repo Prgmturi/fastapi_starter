@@ -48,7 +48,7 @@ def app(mock_auth_service, mock_db_provider):
 async def client(app) -> AsyncGenerator[AsyncClient]:
     """Async HTTP client for endpoint testing."""
     async with AsyncClient(
-        transport=ASGITransport(app=app),
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
         base_url="http://testserver",
     ) as ac:
         yield ac
@@ -104,7 +104,7 @@ def mock_db_provider():
 def sample_user() -> User:
     """Standard test user with USER role."""
     return User(
-        id="user-123",
+        id="e37e9825-ac1c-4bd3-8380-579af43eac4823",
         username="test_user",
         email="test@example.com",
         email_verified=True,

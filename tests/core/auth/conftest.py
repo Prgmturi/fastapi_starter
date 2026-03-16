@@ -13,7 +13,7 @@ from fastapi_starter.core.auth.service import AuthService
 def sample_claims() -> dict[str, Any]:
     """Valid Keycloak JWT claims for a standard user."""
     return {
-        "sub": "user-123",
+        "sub": "e37e9825-ac1c-4bd3-8380-579af43eac4823",
         "exp": 9999999999,
         "iat": 1700000000,
         "iss": "http://localhost:8080/realms/test-realm",
