@@ -162,6 +162,7 @@ class KeycloakClient:
                     status_code=response.status_code,
                     response=response.text,
                 )
+                return
 
             logger.info("user_logged_out")
 
@@ -226,3 +227,6 @@ class KeycloakClient:
         except httpx.HTTPError as e:
             logger.error("token_request_failed", operation=operation, error=str(e))
             raise ExternalServiceError("Keycloak", str(e)) from e
+        except Exception as e:
+            logger.error("token_request_unexpected", operation=operation, error=str(e))
+            raise ExternalServiceError("Keycloak", f"Unexpected error: {e}") from e

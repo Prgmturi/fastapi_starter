@@ -1,5 +1,8 @@
 """Composition root helpers — service initialization and shutdown."""
 
+from collections.abc import Awaitable, Callable
+from typing import Any
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.datastructures import State
@@ -14,6 +17,8 @@ from fastapi_starter.core.logging import LoggingMiddleware, get_logger
 from fastapi_starter.features.auth.client import KeycloakClient
 
 logger = get_logger(__name__)
+
+CleanupFn = Callable[[], Awaitable[Any]]
 
 
 async def init_database(app_state: State) -> DatabaseManager:
@@ -69,16 +74,10 @@ async def init_oauth_provider(app_state: State) -> KeycloakClient:
 
 
 async def shutdown_services(
-    db_manager: DatabaseManager,
-    jwks_manager: JWKSManager,
-    keycloak_client: KeycloakClient,
+    services: list[tuple[str, CleanupFn]],
 ) -> None:
     """Graceful shutdown in reverse initialization order."""
-    for name, close in [
-        ("oauth_provider", keycloak_client.close),
-        ("jwks_manager", jwks_manager.close),
-        ("database", db_manager.disconnect),
-    ]:
+    for name, close in reversed(services):
         try:
             await close()
         except Exception:

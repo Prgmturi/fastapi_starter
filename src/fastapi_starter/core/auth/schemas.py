@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from enum import Enum
 
 from pydantic import BaseModel, EmailStr, Field
@@ -19,12 +21,12 @@ class RoleEnum(str, Enum):
     USER = "user"
 
     @classmethod
-    def all(cls) -> list[str]:
+    def all_roles(cls) -> list[RoleEnum]:
         """Get all defined roles."""
         return [cls.SUPERADMIN, cls.ADMIN, cls.COLLAB, cls.USER]
 
     @classmethod
-    def staff(cls) -> list[str]:
+    def staff_roles(cls) -> list[RoleEnum]:
         """Roles with elevated privileges."""
         return [cls.SUPERADMIN, cls.ADMIN]
 
@@ -82,4 +84,4 @@ class User(BaseModel):
         return all(role in self.roles for role in role_enums)
 
     def is_staff(self) -> bool:
-        return any(role in self.roles for role in RoleEnum.staff())
+        return any(role in self.roles for role in RoleEnum.staff_roles())

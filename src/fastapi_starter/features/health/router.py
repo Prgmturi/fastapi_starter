@@ -1,12 +1,13 @@
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from fastapi_starter.core.auth import TokenValidator, get_auth_service
 from fastapi_starter.core.config import get_settings
 from fastapi_starter.core.database.dependencies import get_db_manager
-from fastapi_starter.core.database.manager import DatabaseManager
+from fastapi_starter.core.protocols import HealthCheckable
 
 health_router = APIRouter(prefix="/health", tags=["health"])
 
@@ -46,14 +47,17 @@ async def liveness() -> HealthResponse:
 @health_router.get(
     "/ready",
     response_model=ReadinessResponse,
-    status_code=status.HTTP_200_OK,
     summary="Readiness probe",
     description="Check if the application is ready to accept requests.",
+    responses={
+        200: {"description": "All services healthy"},
+        503: {"description": "One or more services unhealthy"},
+    },
 )
 async def readiness(
-    db_manager: Annotated[DatabaseManager, Depends(get_db_manager)],
+    db_manager: Annotated[HealthCheckable, Depends(get_db_manager)],
     auth_service: Annotated[TokenValidator, Depends(get_auth_service)],
-) -> ReadinessResponse:
+) -> JSONResponse:
     """Readiness probe - checks database and auth backend connectivity."""
     checks: dict[str, Any] = {}
 
@@ -71,10 +75,14 @@ async def readiness(
     except Exception as e:
         checks["auth"] = {"status": "unhealthy", "error": str(e)}
 
-    # Determine overall status
     all_healthy = all(check.get("status") == "healthy" for check in checks.values())
 
-    return ReadinessResponse(
+    response = ReadinessResponse(
         status="healthy" if all_healthy else "unhealthy",
         checks=checks,
+    )
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK if all_healthy else status.HTTP_503_SERVICE_UNAVAILABLE,
+        content=response.model_dump(),
     )

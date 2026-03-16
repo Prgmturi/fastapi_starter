@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import HTTPException, status
+from fastapi import status
 
 
 class AppExceptionError(Exception):
@@ -14,12 +14,6 @@ class AppExceptionError(Exception):
         self.status_code = status_code
         self.details = details or {}
         super().__init__(message)
-
-    def to_http_exception(self) -> HTTPException:
-        return HTTPException(
-            status_code=self.status_code,
-            detail={"message": self.message, **self.details},
-        )
 
 
 class NotFoundError(AppExceptionError):

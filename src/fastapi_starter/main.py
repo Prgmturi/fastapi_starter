@@ -10,6 +10,7 @@ from fastapi_starter.exception_handlers import register_exception_handlers
 from fastapi_starter.features.auth.router import auth_router
 from fastapi_starter.features.health.router import health_router
 from fastapi_starter.setup import (
+    CleanupFn,
     init_auth_service,
     init_database,
     init_oauth_provider,
@@ -32,14 +33,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         debug=settings.app.debug,
     )
 
-    db_manager = await init_database(app.state)
-    jwks_manager = await init_auth_service(app.state)
-    keycloak_client = await init_oauth_provider(app.state)
+    services: list[tuple[str, CleanupFn]] = []
+    try:
+        db_manager = await init_database(app.state)
+        services.append(("database", db_manager.disconnect))
+
+        jwks_manager = await init_auth_service(app.state)
+        services.append(("jwks_manager", jwks_manager.close))
+
+        keycloak_client = await init_oauth_provider(app.state)
+        services.append(("oauth_provider", keycloak_client.close))
+    except Exception:
+        await shutdown_services(services)
+        raise
 
     yield
 
     logger.info("application_stopping")
-    await shutdown_services(db_manager, jwks_manager, keycloak_client)
+    await shutdown_services(services)
     logger.info("application_stopped")
 
 
