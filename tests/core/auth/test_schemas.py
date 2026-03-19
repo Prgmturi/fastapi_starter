@@ -17,7 +17,9 @@ from fastapi_starter.core.auth.schemas import RoleEnum, TokenResponse, User
 
 def _make_user(**overrides) -> User:
     """Build a User with sensible defaults. Override any field via kwargs."""
-    defaults: dict = {"id": "e37e9825-ac1c-4bd3-8380-579af43eac48", "username": "test_user", "roles": [RoleEnum.USER]}
+    defaults: dict = {"id": "e37e9825-ac1c-4bd3-8380-579af43eac48", 
+                      "username": "test_user", 
+                      "roles": [RoleEnum.USER]}
     return User(**(defaults | overrides))
 
 
