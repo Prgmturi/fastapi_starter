@@ -15,6 +15,7 @@ from fastapi_starter.core.auth.service import AuthService
 from fastapi_starter.core.config import get_settings
 from fastapi_starter.core.database import DatabaseManager
 from fastapi_starter.core.logging import LoggingMiddleware, get_logger
+from fastapi_starter.core.security import SecureHeadersMiddleware
 from fastapi_starter.features.auth.client import KeycloakClient
 
 logger = get_logger(__name__)
@@ -98,11 +99,13 @@ def register_middleware(app: FastAPI) -> None:
         allow_headers=settings.server.cors_allow_headers,
     )
 
-    #
-    # app.add_middleware(
-    #     TrustedHostMiddleware,
-    #     allowed_hosts=["yourdomain.com", "localhost"]
-    # )
+    app.add_middleware(SecureHeadersMiddleware)
+
+    # TrustedHostMiddleware (executes after secure headers)
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["yourdomain.com", "localhost", "127.0.0.1"]
+    )
 
     # Logging (executes first)
     app.add_middleware(LoggingMiddleware)
