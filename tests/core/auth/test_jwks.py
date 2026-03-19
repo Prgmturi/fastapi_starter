@@ -11,7 +11,55 @@ NOTE: Happy-path tests require generating a real RSA key pair and signing
 a JWT with it. The public key is provided via mock_key_provider.
 """
 
+import time
+from unittest.mock import AsyncMock, MagicMock
+
+import jwt as pyjwt
 import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
+
+from fastapi_starter.core.auth.jwks import JWKSTokenDecoder
+from fastapi_starter.core.auth.protocols import TokenDecoder
+from fastapi_starter.core.exceptions import UnauthorizedError
+from fastapi_starter.core.protocols import HealthCheckable
+
+ISSUER = "http://localhost:8080/realms/test-realm"
+
+
+@pytest.fixture
+def rsa_private_key():
+    """RSA private key for signing test JWTs."""
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+@pytest.fixture
+def mock_jwk(rsa_private_key):
+    """Mock JWK object with the public key, as returned by KeyProvider."""
+    jwk = MagicMock()
+    jwk.key = rsa_private_key.public_key()
+    return jwk
+
+
+@pytest.fixture
+def jwks_decoder(mock_key_provider) -> JWKSTokenDecoder:
+    """JWKSTokenDecoder wired with a mock KeyProvider."""
+    return JWKSTokenDecoder(key_provider=mock_key_provider, issuer=ISSUER)
+
+
+def _sign_token(private_key, claims: dict | None = None, headers: dict | None = None) -> str:
+    """Helper to sign a JWT with the given RSA key."""
+    default_claims = {
+        "sub": "user-1",
+        "iss": ISSUER,
+        "exp": int(time.time()) + 3600,
+        "iat": int(time.time()),
+    }
+    return pyjwt.encode(
+        {**default_claims, **(claims or {})},
+        private_key,
+        algorithm="RS256",
+        headers=headers or {"kid": "test-kid"},
+    )
 
 
 class TestDecode:
@@ -23,44 +71,93 @@ class TestDecode:
     handler returns 500 instead of 401.
     """
 
-    async def test_valid_token_returns_claims(self):
-        """[HP] Valid JWT returns decoded claims dict.
+    async def test_valid_token_returns_claims(
+        self, jwks_decoder, mock_key_provider, mock_jwk, rsa_private_key,
+    ):
+        """[HP] Valid JWT returns decoded claims dict."""
+        mock_key_provider.get_signing_key_from_token.return_value = mock_jwk
+        token = _sign_token(rsa_private_key)
 
-        NOTE: This test requires creating a real RSA key pair and
-        signing a JWT, then providing the public key via mock_key_provider.
-        """
-        pytest.skip("Not implemented yet")
+        claims = await jwks_decoder.decode(token)
 
-    async def test_expired_token_raises_unauthorized_with_message(self):
+        assert claims["sub"] == "user-1"
+        assert claims["iss"] == ISSUER
+
+    async def test_expired_token_raises_unauthorized_with_message(
+        self, jwks_decoder, mock_key_provider, mock_jwk, rsa_private_key,
+    ):
         """[EC] ExpiredSignatureError -> UnauthorizedError('Token expired')."""
-        pytest.skip("Not implemented yet")
+        mock_key_provider.get_signing_key_from_token.return_value = mock_jwk
+        token = _sign_token(rsa_private_key, claims={"exp": int(time.time()) - 100})
 
-    async def test_invalid_signature_raises_unauthorized(self):
+        with pytest.raises(UnauthorizedError, match="Token expired"):
+            await jwks_decoder.decode(token)
+
+    async def test_invalid_signature_raises_unauthorized(
+        self, jwks_decoder, mock_key_provider,
+    ):
         """[EC] Invalid signature -> UnauthorizedError('Invalid token')."""
-        pytest.skip("Not implemented yet")
+        # Sign with one key, verify with another
+        wrong_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        token = _sign_token(wrong_key)
 
-    async def test_malformed_token_raises_unauthorized(self):
+        wrong_jwk = MagicMock()
+        wrong_jwk.key = rsa.generate_private_key(
+            public_exponent=65537, key_size=2048,
+        ).public_key()
+        mock_key_provider.get_signing_key_from_token.return_value = wrong_jwk
+
+        with pytest.raises(UnauthorizedError, match="Invalid token"):
+            await jwks_decoder.decode(token)
+
+    async def test_malformed_token_raises_unauthorized(
+        self, jwks_decoder, mock_key_provider,
+    ):
         """[EC] Garbage string -> UnauthorizedError('Invalid token')."""
-        pytest.skip("Not implemented yet")
+        mock_key_provider.get_signing_key_from_token.side_effect = (
+            pyjwt.exceptions.DecodeError("Not enough segments")
+        )
 
-    async def test_key_provider_value_error_raises_unauthorized(self):
+        with pytest.raises(UnauthorizedError, match="Invalid token"):
+            await jwks_decoder.decode("not-a-jwt")
+
+    async def test_key_provider_value_error_raises_unauthorized(
+        self, jwks_decoder, mock_key_provider,
+    ):
         """[EC] KeyProvider raises ValueError (kid not found) -> UnauthorizedError.
 
         WHY: When Keycloak rotates keys and the kid is not found,
         KeyProvider raises ValueError. We must translate this cleanly.
         """
-        pytest.skip("Not implemented yet")
+        mock_key_provider.get_signing_key_from_token.side_effect = ValueError(
+            "Unable to find a signing key that matches: test-kid"
+        )
 
-    async def test_key_provider_runtime_error_raises_unauthorized(self):
+        with pytest.raises(UnauthorizedError):
+            await jwks_decoder.decode("some-token")
+
+    async def test_key_provider_runtime_error_raises_unauthorized(
+        self, jwks_decoder, mock_key_provider,
+    ):
         """[EC] KeyProvider raises RuntimeError (fetch failed) -> UnauthorizedError."""
-        pytest.skip("Not implemented yet")
+        mock_key_provider.get_signing_key_from_token.side_effect = RuntimeError(
+            "JWKS endpoint unreachable"
+        )
 
-    async def test_unexpected_exception_raises_unauthorized(self):
+        with pytest.raises(UnauthorizedError, match="Authentication failed"):
+            await jwks_decoder.decode("some-token")
+
+    async def test_unexpected_exception_raises_unauthorized(
+        self, jwks_decoder, mock_key_provider,
+    ):
         """[EC] Any other exception -> UnauthorizedError('Authentication failed').
 
         WHY: Catch-all ensures no internal exception ever leaks to the caller.
         """
-        pytest.skip("Not implemented yet")
+        mock_key_provider.get_signing_key_from_token.side_effect = OSError("disk error")
+
+        with pytest.raises(UnauthorizedError, match="Authentication failed"):
+            await jwks_decoder.decode("some-token")
 
 
 class TestHealthCheck:
@@ -70,13 +167,21 @@ class TestHealthCheck:
     (via KeyProvider), not a cached/stale state.
     """
 
-    async def test_delegates_to_key_provider(self):
+    async def test_delegates_to_key_provider(self, jwks_decoder, mock_key_provider):
         """[HP] Calls key_provider.health_check() and returns result."""
-        pytest.skip("Not implemented yet")
+        mock_key_provider.health_check.return_value = True
 
-    async def test_key_provider_failure_propagates(self):
+        result = await jwks_decoder.health_check()
+
+        assert result is True
+        mock_key_provider.health_check.assert_called_once()
+
+    async def test_key_provider_failure_propagates(self, jwks_decoder, mock_key_provider):
         """[EC] Exception from key_provider propagates."""
-        pytest.skip("Not implemented yet")
+        mock_key_provider.health_check.side_effect = RuntimeError("unreachable")
+
+        with pytest.raises(RuntimeError, match="unreachable"):
+            await jwks_decoder.health_check()
 
 
 class TestTokenDecoderProtocol:
@@ -87,8 +192,12 @@ class TestTokenDecoderProtocol:
 
     def test_implements_token_decoder_protocol(self):
         """[CT] isinstance(decoder, TokenDecoder) is True."""
-        pytest.skip("Not implemented yet")
+        mock_provider = AsyncMock()
+        decoder = JWKSTokenDecoder(key_provider=mock_provider, issuer="test")
+        assert isinstance(decoder, TokenDecoder)
 
     def test_implements_health_checkable_protocol(self):
         """[CT] isinstance(decoder, HealthCheckable) is True."""
-        pytest.skip("Not implemented yet")
+        mock_provider = AsyncMock()
+        decoder = JWKSTokenDecoder(key_provider=mock_provider, issuer="test")
+        assert isinstance(decoder, HealthCheckable)

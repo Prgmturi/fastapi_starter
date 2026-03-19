@@ -104,7 +104,7 @@ def register_middleware(app: FastAPI) -> None:
     # TrustedHostMiddleware (executes after secure headers)
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=["yourdomain.com", "localhost", "127.0.0.1"]
+        allowed_hosts=settings.server.trusted_hosts,
     )
 
     # Logging (executes first)

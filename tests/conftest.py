@@ -9,12 +9,20 @@ Fixture hierarchy:
     tests/features/auth/conftest.py ← auth endpoints (mock oauth provider)
 """
 
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+
+# Ensure "testserver" is a trusted host before settings are loaded.
+# TrustedHostMiddleware rejects requests with unknown Host headers (→ 400).
+os.environ.setdefault(
+    "SERVER_TRUSTED_HOSTS",
+    '["testserver","localhost","127.0.0.1"]',
+)
 
 from fastapi_starter.core.auth.dependencies import get_auth_service, get_current_user
 from fastapi_starter.core.auth.schemas import RoleEnum, User

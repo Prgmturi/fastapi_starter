@@ -43,3 +43,8 @@ class ServerSettings(BaseSettings):
         default=["*"],
         description="Allowed headers for CORS",
     )
+    # Host validation
+    trusted_hosts: list[str] = Field(
+        default=["localhost", "127.0.0.1"],
+        description="Allowed Host headers (TrustedHostMiddleware)",
+    )

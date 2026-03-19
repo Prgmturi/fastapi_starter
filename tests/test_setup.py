@@ -9,7 +9,12 @@ the wiring and error handling — particularly that partial initialization
 failures properly clean up already-initialized resources.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
+from starlette.datastructures import State
+
+from fastapi_starter.setup import init_auth_service, init_database, shutdown_services
 
 
 class TestInitDatabase:
@@ -19,16 +24,39 @@ class TestInitDatabase:
     with a half-initialized database connection.
     """
 
-    async def test_creates_manager_and_connects(self):
+    @patch("fastapi_starter.setup.DatabaseManager")
+    async def test_creates_manager_and_connects(self, MockManager):
         """[HP] Creates DatabaseManager, calls connect(), stores in state."""
-        pytest.skip("Not implemented yet")
+        mock_manager = AsyncMock()
+        mock_manager.connect = AsyncMock()
+        mock_manager.health_check = AsyncMock(return_value=True)
+        MockManager.return_value = mock_manager
 
-    async def test_health_check_failure_disconnects_and_raises(self):
+        state = State()
+        result = await init_database(state)
+
+        mock_manager.connect.assert_called_once()
+        mock_manager.health_check.assert_called_once()
+        assert state.db_manager is mock_manager
+        assert result is mock_manager
+
+    @patch("fastapi_starter.setup.DatabaseManager")
+    async def test_health_check_failure_disconnects_and_raises(self, MockManager):
         """[EC] health_check fails -> disconnect called, exception propagates.
 
         WHY: Ensures no resource leak if DB is unreachable at startup.
         """
-        pytest.skip("Not implemented yet")
+        mock_manager = AsyncMock()
+        mock_manager.connect = AsyncMock()
+        mock_manager.health_check = AsyncMock(side_effect=RuntimeError("DB down"))
+        mock_manager.disconnect = AsyncMock()
+        MockManager.return_value = mock_manager
+
+        state = State()
+        with pytest.raises(RuntimeError, match="DB down"):
+            await init_database(state)
+
+        mock_manager.disconnect.assert_called_once()
 
 
 class TestInitAuthService:
@@ -38,13 +66,43 @@ class TestInitAuthService:
     Pre-fetches JWKS keys. If JWKS fetch fails, app must not start.
     """
 
-    async def test_creates_service_and_stores_in_state(self):
+    @patch("fastapi_starter.setup.AuthService")
+    @patch("fastapi_starter.setup.KeycloakClaimExtractor")
+    @patch("fastapi_starter.setup.JWKSTokenDecoder")
+    @patch("fastapi_starter.setup.JWKSManager")
+    async def test_creates_service_and_stores_in_state(
+        self, MockJWKS, MockDecoder, MockExtractor, MockAuthService,
+    ):
         """[HP] AuthService stored in app_state.auth_service."""
-        pytest.skip("Not implemented yet")
+        mock_jwks = AsyncMock()
+        mock_jwks.refresh_keys = AsyncMock()
+        MockJWKS.return_value = mock_jwks
 
-    async def test_jwks_refresh_failure_closes_manager_and_raises(self):
+        state = State()
+        result = await init_auth_service(state)
+
+        mock_jwks.refresh_keys.assert_called_once()
+        assert hasattr(state, "auth_service")
+        assert result is mock_jwks
+
+    @patch("fastapi_starter.setup.AuthService")
+    @patch("fastapi_starter.setup.KeycloakClaimExtractor")
+    @patch("fastapi_starter.setup.JWKSTokenDecoder")
+    @patch("fastapi_starter.setup.JWKSManager")
+    async def test_jwks_refresh_failure_closes_manager_and_raises(
+        self, MockJWKS, MockDecoder, MockExtractor, MockAuthService,
+    ):
         """[EC] refresh_keys fails -> jwks_manager.close() called, raises."""
-        pytest.skip("Not implemented yet")
+        mock_jwks = AsyncMock()
+        mock_jwks.refresh_keys = AsyncMock(side_effect=RuntimeError("JWKS unreachable"))
+        mock_jwks.close = AsyncMock()
+        MockJWKS.return_value = mock_jwks
+
+        state = State()
+        with pytest.raises(RuntimeError, match="JWKS unreachable"):
+            await init_auth_service(state)
+
+        mock_jwks.close.assert_called_once()
 
 
 class TestShutdownServices:
@@ -56,7 +114,15 @@ class TestShutdownServices:
 
     async def test_calls_all_cleanup_functions(self):
         """[HP] All registered cleanup functions called."""
-        pytest.skip("Not implemented yet")
+        fn1 = AsyncMock()
+        fn2 = AsyncMock()
+        fn3 = AsyncMock()
+
+        await shutdown_services([("svc1", fn1), ("svc2", fn2), ("svc3", fn3)])
+
+        fn1.assert_called_once()
+        fn2.assert_called_once()
+        fn3.assert_called_once()
 
     async def test_reverse_order(self):
         """[HP] Cleanup functions called in reverse registration order.
@@ -64,7 +130,20 @@ class TestShutdownServices:
         WHY: Services initialized first may depend on services initialized
         later. Reverse order ensures dependents are shut down first.
         """
-        pytest.skip("Not implemented yet")
+        call_order: list[str] = []
+
+        async def fn_a():
+            call_order.append("a")
+
+        async def fn_b():
+            call_order.append("b")
+
+        async def fn_c():
+            call_order.append("c")
+
+        await shutdown_services([("a", fn_a), ("b", fn_b), ("c", fn_c)])
+
+        assert call_order == ["c", "b", "a"]
 
     async def test_continues_on_failure(self):
         """[EC] One cleanup function raises -> others still called.
@@ -72,8 +151,17 @@ class TestShutdownServices:
         WHY: shutdown must be robust. A failing service should not
         prevent other services from shutting down cleanly.
         """
-        pytest.skip("Not implemented yet")
+        fn1 = AsyncMock()
+        fn2 = AsyncMock(side_effect=RuntimeError("failed"))
+        fn3 = AsyncMock()
+
+        # Should not raise despite fn2 failing
+        await shutdown_services([("svc1", fn1), ("svc2", fn2), ("svc3", fn3)])
+
+        # fn3 called first (reversed), then fn2 (fails), then fn1 (still called)
+        fn1.assert_called_once()
+        fn3.assert_called_once()
 
     async def test_empty_services_list(self):
         """[EC] Empty list -> no errors, no calls."""
-        pytest.skip("Not implemented yet")
+        await shutdown_services([])  # Should not raise

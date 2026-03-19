@@ -10,6 +10,9 @@ propagate correctly. Every protected endpoint calls this.
 
 import pytest
 
+from fastapi_starter.core.auth.protocols import TokenValidator
+from fastapi_starter.core.exceptions import UnauthorizedError
+
 
 class TestValidateToken:
     """AuthService.validate_token() — the decode -> extract pipeline.
@@ -21,29 +24,58 @@ class TestValidateToken:
     3. Extractor exceptions propagate unchanged
     """
 
-    async def test_valid_token_returns_user(self):
+    async def test_valid_token_returns_user(
+        self, auth_service, mock_token_decoder, mock_claim_extractor, sample_user,
+    ):
         """[HP] Token decoded, claims extracted, User returned."""
-        pytest.skip("Not implemented yet")
+        mock_token_decoder.decode.return_value = {"sub": "user-1"}
+        mock_claim_extractor.extract_user.return_value = sample_user
 
-    async def test_decoder_called_with_token(self):
+        user = await auth_service.validate_token("valid-token")
+
+        assert user == sample_user
+
+    async def test_decoder_called_with_token(
+        self, auth_service, mock_token_decoder,
+    ):
         """[HP] Decoder.decode receives the raw token string.
 
         WHY: Verifies the service passes the token as-is, without
         modification (e.g., no accidental stripping of 'Bearer ' prefix).
         """
-        pytest.skip("Not implemented yet")
+        await auth_service.validate_token("my-raw-token")
 
-    async def test_extractor_called_with_decoded_claims(self):
+        mock_token_decoder.decode.assert_called_once_with("my-raw-token")
+
+    async def test_extractor_called_with_decoded_claims(
+        self, auth_service, mock_token_decoder, mock_claim_extractor,
+    ):
         """[HP] Extractor receives the exact dict returned by decoder."""
-        pytest.skip("Not implemented yet")
+        decoded_claims = {"sub": "user-1", "iss": "test-issuer"}
+        mock_token_decoder.decode.return_value = decoded_claims
 
-    async def test_decoder_failure_propagates_unauthorized(self):
+        await auth_service.validate_token("token")
+
+        mock_claim_extractor.extract_user.assert_called_once_with(decoded_claims)
+
+    async def test_decoder_failure_propagates_unauthorized(
+        self, auth_service, mock_token_decoder,
+    ):
         """[EC] UnauthorizedError from decoder propagates to caller."""
-        pytest.skip("Not implemented yet")
+        mock_token_decoder.decode.side_effect = UnauthorizedError("token expired")
 
-    async def test_extractor_failure_propagates_unauthorized(self):
+        with pytest.raises(UnauthorizedError, match="token expired"):
+            await auth_service.validate_token("expired-token")
+
+    async def test_extractor_failure_propagates_unauthorized(
+        self, auth_service, mock_token_decoder, mock_claim_extractor,
+    ):
         """[EC] UnauthorizedError from extractor propagates to caller."""
-        pytest.skip("Not implemented yet")
+        mock_token_decoder.decode.return_value = {"sub": "user-1"}
+        mock_claim_extractor.extract_user.side_effect = UnauthorizedError("bad claims")
+
+        with pytest.raises(UnauthorizedError, match="bad claims"):
+            await auth_service.validate_token("token")
 
 
 class TestHealthCheck:
@@ -53,13 +85,25 @@ class TestHealthCheck:
     (no transformation, no swallowing of exceptions).
     """
 
-    async def test_healthy_backend_returns_true(self):
+    async def test_healthy_backend_returns_true(
+        self, auth_service, mock_health_checker,
+    ):
         """[HP] Delegates to health_checker, returns True."""
-        pytest.skip("Not implemented yet")
+        mock_health_checker.health_check.return_value = True
 
-    async def test_unhealthy_backend_propagates_exception(self):
+        result = await auth_service.health_check()
+
+        assert result is True
+        mock_health_checker.health_check.assert_called_once()
+
+    async def test_unhealthy_backend_propagates_exception(
+        self, auth_service, mock_health_checker,
+    ):
         """[EC] Exception from health_checker propagates."""
-        pytest.skip("Not implemented yet")
+        mock_health_checker.health_check.side_effect = RuntimeError("backend down")
+
+        with pytest.raises(RuntimeError, match="backend down"):
+            await auth_service.health_check()
 
 
 class TestTokenValidatorProtocol:
@@ -69,6 +113,6 @@ class TestTokenValidatorProtocol:
     TokenValidator Protocol. This locks the structural contract.
     """
 
-    def test_implements_token_validator_protocol(self):
+    def test_implements_token_validator_protocol(self, auth_service):
         """[CT] isinstance(auth_service, TokenValidator) is True."""
-        pytest.skip("Not implemented yet")
+        assert isinstance(auth_service, TokenValidator)
