@@ -1,7 +1,6 @@
 from typing import Any, Protocol, runtime_checkable
 
 from fastapi_starter.core.auth.schemas import TokenResponse, User
-from fastapi_starter.core.protocols import HealthCheckable, KeyProvider
 
 
 @runtime_checkable

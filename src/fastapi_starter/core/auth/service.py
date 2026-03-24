@@ -1,10 +1,7 @@
-from fastapi_starter.core.auth.protocols import (
-    ClaimExtractor,
-    HealthCheckable,
-    TokenDecoder,
-)
+from fastapi_starter.core.auth.protocols import ClaimExtractor, TokenDecoder
 from fastapi_starter.core.auth.schemas import User
 from fastapi_starter.core.logging import get_logger
+from fastapi_starter.core.protocols import HealthCheckable
 
 logger = get_logger(__name__)
 

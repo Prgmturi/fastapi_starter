@@ -9,8 +9,6 @@ from fastapi_starter.core.auth.dependencies import (
 )
 from fastapi_starter.core.auth.protocols import (
     ClaimExtractor,
-    HealthCheckable,
-    KeyProvider,
     OAuthProvider,
     TokenDecoder,
     TokenValidator,
@@ -18,12 +16,10 @@ from fastapi_starter.core.auth.protocols import (
 from fastapi_starter.core.auth.schemas import RoleEnum, TokenResponse, User
 
 __all__ = [
-    # Protocols
+    # Protocols (auth-specific only; HealthCheckable/KeyProvider live in core.protocols)
     "TokenValidator",
     "TokenDecoder",
     "ClaimExtractor",
-    "HealthCheckable",
-    "KeyProvider",
     "OAuthProvider",
     # Schemas
     "User",
