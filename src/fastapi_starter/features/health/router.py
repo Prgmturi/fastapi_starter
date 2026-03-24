@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from fastapi_starter.core.auth import TokenValidator, get_auth_service
-from fastapi_starter.core.config import get_settings
+from fastapi_starter.core.config import Settings, get_settings
 from fastapi_starter.core.database.dependencies import get_db_manager
 from fastapi_starter.core.protocols import HealthCheckable
 
@@ -34,9 +34,10 @@ class ReadinessResponse(BaseModel):
     summary="Liveness probe",
     description="Check if the application is running.",
 )
-async def liveness() -> HealthResponse:
+async def liveness(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> HealthResponse:
     """Liveness probe - returns OK if the application is running."""
-    settings = get_settings()
     return HealthResponse(
         status="healthy",
         version=settings.app.version,

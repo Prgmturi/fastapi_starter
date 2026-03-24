@@ -1,10 +1,10 @@
 import time
 import uuid
-from collections.abc import Callable
 
 import structlog
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.requests import Request
+from starlette.responses import Response
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
 
@@ -30,7 +30,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self,
         request: Request,
-        call_next: Callable,
+        call_next: RequestResponseEndpoint,
     ) -> Response:
         # Clear context from previous requests.
         # Important in async environments where workers are reused.

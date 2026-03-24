@@ -65,6 +65,7 @@ known-first-party = ["fastapi_starter"]
 # =============================================================================
 [tool.mypy]
 python_version = "3.13"
+plugins = ["pydantic.mypy"]
 strict = true
 warn_return_any = true
 warn_unused_configs = true

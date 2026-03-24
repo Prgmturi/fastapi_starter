@@ -2,16 +2,18 @@ import logging
 import sys
 
 import structlog
-from structlog.types import Processor
+from structlog.typing import FilteringBoundLogger, Processor
 
 from fastapi_starter.core.logging.processors import (
-    add_service_info,
     clean_event_dict,
     drop_color_message_key,
+    make_service_info_processor,
 )
 
 
-def get_processors(environment: str) -> list[Processor]:
+def get_processors(
+    environment: str, app_name: str = "", version: str = ""
+) -> list[Processor]:
     if environment == "development":
         # Development: minimal, colorized, human-readable output.
         # No service info or callsite - keep it clean for local work.
@@ -32,7 +34,7 @@ def get_processors(environment: str) -> list[Processor]:
             structlog.contextvars.merge_contextvars,
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso"),
-            add_service_info,
+            make_service_info_processor(app_name, version, environment),
             structlog.processors.CallsiteParameterAdder(
                 parameters=[
                     structlog.processors.CallsiteParameter.FILENAME,
@@ -50,6 +52,8 @@ def get_processors(environment: str) -> list[Processor]:
 def configure_logging(
     environment: str = "development",
     log_level: str = "INFO",
+    app_name: str = "",
+    version: str = "",
 ) -> None:
     """
     Configure the logging system for the entire application.
@@ -59,6 +63,8 @@ def configure_logging(
     Args:
         environment: "development", "staging", or "production"
         log_level: "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"
+        app_name: Application name (injected into production logs)
+        version: Application version (injected into production logs)
 
     Example:
     ```python
@@ -74,7 +80,7 @@ def configure_logging(
     level = getattr(logging, log_level.upper(), logging.INFO)
 
     # Build processors for the environment
-    processors = get_processors(environment)
+    processors = get_processors(environment, app_name, version)
 
     # Configure structlog
     structlog.configure(
@@ -103,7 +109,7 @@ def configure_logging(
     logging.getLogger("asyncio").setLevel(logging.WARNING)
 
 
-def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
+def get_logger(name: str | None = None) -> FilteringBoundLogger:
     """
     Get a configured logger.
 
@@ -123,5 +129,5 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     ```
     """
     if name:
-        return structlog.get_logger(name)
-    return structlog.get_logger()
+        return structlog.get_logger(name)  # type: ignore[no-any-return]
+    return structlog.get_logger()  # type: ignore[no-any-return]

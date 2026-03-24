@@ -24,7 +24,7 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan handler for startup and shutdown events."""
-    settings = get_settings()
+    settings = app.state.settings
     logger.info(
         "application_started",
         app_name=settings.app.name,
@@ -35,13 +35,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     services: list[tuple[str, CleanupFn]] = []
     try:
-        db_manager = await init_database(app.state)
+        db_manager = await init_database(app.state, settings.database)
         services.append(("database", db_manager.disconnect))
 
-        jwks_manager = await init_auth_service(app.state)
+        jwks_manager = await init_auth_service(app.state, settings.keycloak)
         services.append(("jwks_manager", jwks_manager.close))
 
-        keycloak_client = await init_oauth_provider(app.state)
+        keycloak_client = await init_oauth_provider(app.state, settings.keycloak)
         services.append(("oauth_provider", keycloak_client.close))
     except Exception:
         await shutdown_services(services)
@@ -60,6 +60,8 @@ def create_app() -> FastAPI:
     configure_logging(
         environment=settings.app.environment,
         log_level=settings.app.log_level,
+        app_name=settings.app.name,
+        version=settings.app.version,
     )
 
     app = FastAPI(
@@ -72,7 +74,10 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if settings.app.is_development else None,
     )
 
-    register_middleware(app)
+    # Store settings in app.state so lifespan() can access them
+    app.state.settings = settings
+
+    register_middleware(app, settings.server)
     register_exception_handlers(app)
 
     app.include_router(health_router)

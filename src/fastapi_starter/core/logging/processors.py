@@ -1,26 +1,29 @@
-from typing import Any
-
-from fastapi_starter.core.config import get_settings
+from structlog.typing import EventDict, Processor, WrappedLogger
 
 
-def add_service_info(
-    logger: Any,
-    method_name: str,
-    event_dict: dict[str, Any],
-) -> dict[str, Any]:
-    settings = get_settings()
-    event_dict["service"] = settings.app.name
-    event_dict["version"] = settings.app.version
-    event_dict["environment"] = settings.app.environment
+def make_service_info_processor(
+    app_name: str, version: str, environment: str
+) -> Processor:
+    """Factory: captures app metadata once at startup, returns a processor."""
 
-    return event_dict
+    def add_service_info(
+        logger: WrappedLogger,
+        method_name: str,
+        event_dict: EventDict,
+    ) -> EventDict:
+        event_dict["service"] = app_name
+        event_dict["version"] = version
+        event_dict["environment"] = environment
+        return event_dict
+
+    return add_service_info
 
 
 def clean_event_dict(
-    logger: Any,
+    logger: WrappedLogger,
     method_name: str,
-    event_dict: dict[str, Any],
-) -> dict[str, Any]:
+    event_dict: EventDict,
+) -> EventDict:
     keys_to_remove = ["_record", "_from_structlog"]
     for key in keys_to_remove:
         event_dict.pop(key, None)
@@ -29,9 +32,9 @@ def clean_event_dict(
 
 
 def drop_color_message_key(
-    logger: Any,
+    logger: WrappedLogger,
     method_name: str,
-    event_dict: dict[str, Any],
-) -> dict[str, Any]:
+    event_dict: EventDict,
+) -> EventDict:
     event_dict.pop("color_message", None)
     return event_dict

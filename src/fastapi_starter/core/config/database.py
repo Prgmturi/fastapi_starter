@@ -57,7 +57,7 @@ class DatabaseSettings(BaseSettings):
         description="Log SQL queries",
     )
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def url(self) -> str:
         return (
@@ -65,7 +65,7 @@ class DatabaseSettings(BaseSettings):
             f"@{self.host}:{self.port}/{self.name}"
         )
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def url_safe(self) -> str:
         return f"{self.driver}://{self.user}:***@{self.host}:{self.port}/{self.name}"

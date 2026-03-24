@@ -9,11 +9,12 @@ the wiring and error handling — particularly that partial initialization
 failures properly clean up already-initialized resources.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from starlette.datastructures import State
 
+from fastapi_starter.core.config import DatabaseSettings, KeycloakSettings
 from fastapi_starter.setup import init_auth_service, init_database, shutdown_services
 
 
@@ -33,7 +34,8 @@ class TestInitDatabase:
         MockManager.return_value = mock_manager
 
         state = State()
-        result = await init_database(state)
+        settings = DatabaseSettings()
+        result = await init_database(state, settings)
 
         mock_manager.connect.assert_called_once()
         mock_manager.health_check.assert_called_once()
@@ -53,8 +55,9 @@ class TestInitDatabase:
         MockManager.return_value = mock_manager
 
         state = State()
+        settings = DatabaseSettings()
         with pytest.raises(RuntimeError, match="DB down"):
-            await init_database(state)
+            await init_database(state, settings)
 
         mock_manager.disconnect.assert_called_once()
 
@@ -79,7 +82,8 @@ class TestInitAuthService:
         MockJWKS.return_value = mock_jwks
 
         state = State()
-        result = await init_auth_service(state)
+        settings = KeycloakSettings()
+        result = await init_auth_service(state, settings)
 
         mock_jwks.refresh_keys.assert_called_once()
         assert hasattr(state, "auth_service")
@@ -99,8 +103,9 @@ class TestInitAuthService:
         MockJWKS.return_value = mock_jwks
 
         state = State()
+        settings = KeycloakSettings()
         with pytest.raises(RuntimeError, match="JWKS unreachable"):
-            await init_auth_service(state)
+            await init_auth_service(state, settings)
 
         mock_jwks.close.assert_called_once()
 

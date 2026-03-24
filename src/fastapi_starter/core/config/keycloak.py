@@ -43,22 +43,22 @@ class KeycloakSettings(BaseSettings):
         description="Request timeout to fetch fresh keys from Keycloak",
     )
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def server_url(self) -> str:
         return f"{self.scheme}://{self.host}:{self.port}"
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def token_url(self) -> str:
         return f"{self.server_url}/realms/{self.realm}/protocol/openid-connect/token"
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def auth_url(self) -> str:
         return f"{self.server_url}/realms/{self.realm}/protocol/openid-connect/auth"
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def certs_url(self) -> str:
         return f"{self.server_url}/realms/{self.realm}/protocol/openid-connect/certs"

@@ -12,7 +12,11 @@ from fastapi_starter.core.auth.extractors import KeycloakClaimExtractor
 from fastapi_starter.core.auth.jwks import JWKSTokenDecoder
 from fastapi_starter.core.auth.jwks_manager import JWKSManager
 from fastapi_starter.core.auth.service import AuthService
-from fastapi_starter.core.config import get_settings
+from fastapi_starter.core.config import (
+    DatabaseSettings,
+    KeycloakSettings,
+    ServerSettings,
+)
 from fastapi_starter.core.database import DatabaseManager
 from fastapi_starter.core.logging import LoggingMiddleware, get_logger
 from fastapi_starter.core.security import SecureHeadersMiddleware
@@ -23,10 +27,11 @@ logger = get_logger(__name__)
 CleanupFn = Callable[[], Awaitable[Any]]
 
 
-async def init_database(app_state: State) -> DatabaseManager:
+async def init_database(
+    app_state: State, settings: DatabaseSettings
+) -> DatabaseManager:
     """Create connection pool, verify connectivity, register in app state."""
-    settings = get_settings()
-    db_manager = DatabaseManager(settings.database)
+    db_manager = DatabaseManager(settings)
     await db_manager.connect()
 
     try:
@@ -36,19 +41,20 @@ async def init_database(app_state: State) -> DatabaseManager:
         await db_manager.disconnect()
         raise
 
-    logger.info("database_connected", url=settings.database.url_safe)
+    logger.info("database_connected", url=settings.url_safe)
     app_state.db_manager = db_manager
     return db_manager
 
 
-async def init_auth_service(app_state: State) -> JWKSManager:
+async def init_auth_service(
+    app_state: State, settings: KeycloakSettings
+) -> JWKSManager:
     """Wire auth adapters to ports, pre-fetch JWKS keys, register in app state."""
-    settings = get_settings()
-    jwks_manager = JWKSManager(settings.keycloak)
-    issuer = f"{settings.keycloak.server_url}/realms/{settings.keycloak.realm}"
+    jwks_manager = JWKSManager(settings)
+    issuer = f"{settings.server_url}/realms/{settings.realm}"
 
     decoder = JWKSTokenDecoder(key_provider=jwks_manager, issuer=issuer)
-    extractor = KeycloakClaimExtractor(settings.keycloak.client_id)
+    extractor = KeycloakClaimExtractor(settings.client_id)
     # JWKSTokenDecoder implements both TokenDecoder and HealthCheckable
     # (health_check delegates to the underlying JWKSManager)
     auth_service = AuthService(
@@ -67,10 +73,11 @@ async def init_auth_service(app_state: State) -> JWKSManager:
     return jwks_manager
 
 
-async def init_oauth_provider(app_state: State) -> KeycloakClient:
+async def init_oauth_provider(
+    app_state: State, settings: KeycloakSettings
+) -> KeycloakClient:
     """Initialize OAuth provider for token operations."""
-    settings = get_settings()
-    client = KeycloakClient(settings.keycloak)
+    client = KeycloakClient(settings)
     app_state.oauth_provider = client
     return client
 
@@ -86,17 +93,15 @@ async def shutdown_services(
             logger.exception("shutdown_failed", service=name)
 
 
-def register_middleware(app: FastAPI) -> None:
+def register_middleware(app: FastAPI, settings: ServerSettings) -> None:
     """Register middleware. ORDER MATTERS: execute in REVERSE add order."""
-    settings = get_settings()
-
     # CORS (executes last)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.server.cors_origins,
-        allow_credentials=settings.server.cors_allow_credentials,
-        allow_methods=settings.server.cors_allow_methods,
-        allow_headers=settings.server.cors_allow_headers,
+        allow_origins=settings.cors_origins,
+        allow_credentials=settings.cors_allow_credentials,
+        allow_methods=settings.cors_allow_methods,
+        allow_headers=settings.cors_allow_headers,
     )
 
     app.add_middleware(SecureHeadersMiddleware)
@@ -104,7 +109,7 @@ def register_middleware(app: FastAPI) -> None:
     # TrustedHostMiddleware (executes after secure headers)
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=settings.server.trusted_hosts,
+        allowed_hosts=settings.trusted_hosts,
     )
 
     # Logging (executes first)
