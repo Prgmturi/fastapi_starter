@@ -73,13 +73,14 @@ class TestExchangeToken:
     """POST /auth/token — exchange authorization code for tokens.
 
     WHY: Critical OAuth step. We verify:
-    1. Success returns token structure
-    2. Invalid code returns 401 (not 500)
-    3. Request validation catches missing fields
+    1. Success returns access_token in body and sets HttpOnly cookie
+    2. refresh_token is NOT exposed in the response body
+    3. Invalid code returns 401 (not 500)
+    4. Request validation catches missing fields
     """
 
-    async def test_valid_code_returns_tokens(self, oauth_client):
-        """[HP] Valid request -> 200 with access_token + refresh_token."""
+    async def test_valid_code_returns_access_token(self, oauth_client):
+        """[HP] Valid request -> 200 with access_token; no refresh_token in body."""
         response = await oauth_client.post(
             "/auth/token",
             json={
@@ -92,9 +93,23 @@ class TestExchangeToken:
         assert response.status_code == 200
         body = response.json()
         assert "access_token" in body
-        assert "refresh_token" in body
+        assert "refresh_token" not in body
 
-    async def test_invalid_code_returns_error(
+    async def test_valid_code_sets_refresh_cookie(self, oauth_client):
+        """[HP] Valid request -> HttpOnly cookie refresh_token is set."""
+        response = await oauth_client.post(
+            "/auth/token",
+            json={
+                "code": "valid-auth-code",
+                "code_verifier": "a" * 43,
+                "redirect_uri": "http://localhost:3000/callback",
+            },
+        )
+
+        assert response.status_code == 200
+        assert "refresh_token" in response.cookies
+
+    async def test_invalid_code_returns_401(
         self, oauth_client, mock_oauth_provider,
     ):
         """[EC] OAuthProvider raises UnauthorizedError -> propagated."""
@@ -138,24 +153,42 @@ class TestExchangeToken:
 
 
 class TestRefreshToken:
-    """POST /auth/refresh — token renewal.
+    """POST /auth/refresh — token renewal via HttpOnly cookie.
 
-    WHY: Client uses this to get new tokens before access_token expires.
+    WHY: Client uses this to restore session (page load, F5) and to get
+    new tokens before access_token expires. Refresh token arrives as a
+    cookie, not in the request body.
     """
 
-    async def test_valid_refresh_returns_new_tokens(self, oauth_client):
-        """[HP] Valid refresh_token -> 200 with new tokens."""
+    async def test_valid_cookie_returns_new_access_token(self, oauth_client):
+        """[HP] Valid refresh_token cookie -> 200 with new access_token."""
         response = await oauth_client.post(
             "/auth/refresh",
-            json={"refresh_token": "valid-rt"},
+            cookies={"refresh_token": "valid-rt"},
         )
 
         assert response.status_code == 200
         body = response.json()
         assert "access_token" in body
-        assert "refresh_token" in body
+        assert "refresh_token" not in body
 
-    async def test_invalid_refresh_token_returns_error(
+    async def test_valid_cookie_rotates_refresh_cookie(self, oauth_client):
+        """[HP] Valid refresh_token cookie -> new HttpOnly cookie is set."""
+        response = await oauth_client.post(
+            "/auth/refresh",
+            cookies={"refresh_token": "valid-rt"},
+        )
+
+        assert response.status_code == 200
+        assert "refresh_token" in response.cookies
+
+    async def test_missing_cookie_returns_401(self, oauth_client):
+        """[EC] No cookie -> 401 (no session to restore)."""
+        response = await oauth_client.post("/auth/refresh")
+
+        assert response.status_code == 401
+
+    async def test_invalid_cookie_returns_401(
         self, oauth_client, mock_oauth_provider,
     ):
         """[EC] OAuthProvider raises UnauthorizedError -> propagated."""
@@ -163,40 +196,35 @@ class TestRefreshToken:
 
         response = await oauth_client.post(
             "/auth/refresh",
-            json={"refresh_token": "expired-rt"},
+            cookies={"refresh_token": "expired-rt"},
         )
 
         assert response.status_code == 401
 
-    async def test_missing_refresh_token_returns_422(self, oauth_client):
-        """[EC] Empty body -> 422."""
-        response = await oauth_client.post("/auth/refresh", json={})
-
-        assert response.status_code == 422
-
 
 class TestLogout:
-    """POST /auth/logout — token revocation.
+    """POST /auth/logout — token revocation via HttpOnly cookie.
 
     WHY: Security requirement. User must be able to invalidate tokens.
+    Logout is idempotent: succeeds even if cookie is missing (already logged out).
     """
 
-    async def test_successful_logout_returns_message(self, oauth_client):
-        """[HP] Logout succeeds -> 200 with success message."""
+    async def test_logout_with_cookie_revokes_and_clears(self, oauth_client):
+        """[HP] Valid cookie -> 200, cookie cleared."""
         response = await oauth_client.post(
             "/auth/logout",
-            json={"refresh_token": "valid-rt"},
+            cookies={"refresh_token": "valid-rt"},
         )
 
         assert response.status_code == 200
-        body = response.json()
-        assert "message" in body
+        assert "message" in response.json()
 
-    async def test_missing_refresh_token_returns_422(self, oauth_client):
-        """[EC] Empty body -> 422."""
-        response = await oauth_client.post("/auth/logout", json={})
+    async def test_logout_without_cookie_succeeds(self, oauth_client):
+        """[HP] No cookie (already logged out) -> 200, idempotent."""
+        response = await oauth_client.post("/auth/logout")
 
-        assert response.status_code == 422
+        assert response.status_code == 200
+        assert "message" in response.json()
 
 
 class TestGetMe:

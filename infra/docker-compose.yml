@@ -63,6 +63,26 @@ services:
       - keycloak-network
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------------
+  # Nginx — reverse proxy locale (stessa origine per frontend + backend)
+  #
+  # localhost:80/       → Astro dev server (localhost:4321)
+  # localhost:80/auth/  → FastAPI (localhost:8000)
+  #
+  # Questo elimina il problema cross-origin dei cookie HttpOnly in sviluppo.
+  # In produzione Nginx ha la stessa responsabilità con la config di prod.
+  # ---------------------------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    container_name: dev-proxy
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/dev.conf:/etc/nginx/conf.d/default.conf:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
 networks:
   keycloak-network:
     name: keycloak-network

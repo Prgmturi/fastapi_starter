@@ -43,6 +43,39 @@ class ServerSettings(BaseSettings):
         default=["*"],
         description="Allowed headers for CORS",
     )
+    # Auth cookie
+    auth_cookie_name: str = Field(
+        default="refresh_token",
+        description="Name of the HttpOnly cookie carrying the refresh token",
+    )
+    auth_cookie_max_age: int = Field(
+        default=60 * 60 * 24 * 30,  # 30 days — must match Keycloak SSO session max
+        description="Max-Age in seconds for the refresh token cookie",
+    )
+    auth_cookie_path: str = Field(
+        default="/auth",
+        description=(
+            "Path scope for the refresh token cookie. "
+            "Use '/auth' in production (Nginx proxies /auth/* directly to backend). "
+            "Use '/' in local dev (cross-origin, no proxy)."
+        ),
+    )
+    auth_cookie_samesite: str = Field(
+        default="strict",
+        description=(
+            "SameSite policy for the refresh token cookie. "
+            "Use 'strict' in production. "
+            "Use 'none' in local dev (cross-origin fetch requires SameSite=None)."
+        ),
+    )
+    auth_cookie_secure: bool = Field(
+        default=False,
+        description=(
+            "Secure flag for the refresh token cookie. "
+            "Set to True in production (HTTPS). "
+            "SameSite=None requires Secure=True except on localhost."
+        ),
+    )
     # Host validation
     trusted_hosts: list[str] = Field(
         default=["localhost", "127.0.0.1"],

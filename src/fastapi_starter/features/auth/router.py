@@ -1,15 +1,15 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Cookie, Depends, Query, Request, Response, status
 
 from fastapi_starter.core.auth import CurrentUser, OAuthProvider
+from fastapi_starter.core.config import get_settings
+from fastapi_starter.core.exceptions import UnauthorizedError
 from fastapi_starter.features.auth.schemas import (
+    AccessTokenResponse,
     AuthUrlResponse,
-    LogoutRequest,
     MessageResponse,
-    RefreshRequest,
     TokenRequest,
-    TokenResponse,
     UserResponse,
 )
 
@@ -20,6 +20,31 @@ def get_oauth_provider(request: Request) -> OAuthProvider:
     """Get OAuthProvider from app state."""
     provider: OAuthProvider = request.app.state.oauth_provider
     return provider
+
+
+def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    """Write the refresh token as an HttpOnly cookie on the response."""
+    cfg = get_settings().server
+    response.set_cookie(
+        key=cfg.auth_cookie_name,
+        value=refresh_token,
+        httponly=True,
+        secure=cfg.auth_cookie_secure,
+        samesite=cfg.auth_cookie_samesite,
+        max_age=cfg.auth_cookie_max_age,
+        path=cfg.auth_cookie_path,
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    """Delete the refresh token cookie."""
+    cfg = get_settings().server
+    response.delete_cookie(
+        key=cfg.auth_cookie_name,
+        path=cfg.auth_cookie_path,
+        samesite=cfg.auth_cookie_samesite,
+        secure=cfg.auth_cookie_secure,
+    )
 
 
 @auth_router.get(
@@ -65,51 +90,69 @@ async def get_login_url(
 
 @auth_router.post(
     "/token",
-    response_model=TokenResponse,
+    response_model=AccessTokenResponse,
     status_code=status.HTTP_200_OK,
     summary="Exchange code for tokens",
-    description="Exchange authorization code for access and refresh tokens.",
+    description="Exchange authorization code for tokens. refresh_token is returned as HttpOnly cookie.",
 )
 async def exchange_token(
-    request: TokenRequest,
+    token_request: TokenRequest,
+    response: Response,
     oauth_provider: Annotated[OAuthProvider, Depends(get_oauth_provider)],
-) -> TokenResponse:
+) -> AccessTokenResponse:
     """
     Exchange authorization code for tokens.
 
-    Client sends:
-    - code: from provider callback
-    - code_verifier: original verifier (not the challenge)
-    - redirect_uri: same as used in /login
-
-    Returns access_token and refresh_token.
+    Client sends code + code_verifier + redirect_uri in the JSON body.
+    Returns access_token in the JSON body; refresh_token is set as HttpOnly cookie.
+    Invalid/expired codes raise UnauthorizedError (propagated from KeycloakClient).
     """
-    return await oauth_provider.exchange_code(
-        code=request.code,
-        code_verifier=request.code_verifier,
-        redirect_uri=request.redirect_uri,
+    tokens = await oauth_provider.exchange_code(
+        code=token_request.code,
+        code_verifier=token_request.code_verifier,
+        redirect_uri=token_request.redirect_uri,
+    )
+    _set_refresh_cookie(response, tokens.refresh_token)
+    return AccessTokenResponse(
+        access_token=tokens.access_token,
+        token_type=tokens.token_type,
+        expires_in=tokens.expires_in,
     )
 
 
 @auth_router.post(
     "/refresh",
-    response_model=TokenResponse,
+    response_model=AccessTokenResponse,
     status_code=status.HTTP_200_OK,
     summary="Refresh access token",
-    description="Get new tokens using refresh token.",
+    description="Get new tokens using the refresh_token HttpOnly cookie.",
 )
 async def refresh_token(
-    request: RefreshRequest,
+    response: Response,
     oauth_provider: Annotated[OAuthProvider, Depends(get_oauth_provider)],
-) -> TokenResponse:
+    refresh_token: Annotated[
+        str | None,
+        Cookie(alias="refresh_token", description="HttpOnly refresh token cookie"),
+    ] = None,
+) -> AccessTokenResponse:
     """
     Refresh access token.
 
-    With rotation enabled:
-    - Returns NEW access_token AND NEW refresh_token
-    - Old refresh_token becomes invalid
+    Reads refresh_token from the HttpOnly cookie set by /token or a previous /refresh.
+    With rotation enabled, the old refresh_token is invalidated and a new one is set.
+    Cookie missing → 401 (no session to restore).
+    Invalid/expired cookie → UnauthorizedError (propagated from KeycloakClient).
     """
-    return await oauth_provider.refresh_token(request.refresh_token)
+    if not refresh_token:
+        raise UnauthorizedError("Refresh token cookie missing")
+
+    tokens = await oauth_provider.refresh_token(refresh_token)
+    _set_refresh_cookie(response, tokens.refresh_token)
+    return AccessTokenResponse(
+        access_token=tokens.access_token,
+        token_type=tokens.token_type,
+        expires_in=tokens.expires_in,
+    )
 
 
 @auth_router.post(
@@ -117,19 +160,26 @@ async def refresh_token(
     response_model=MessageResponse,
     status_code=status.HTTP_200_OK,
     summary="Logout user",
-    description="Revoke refresh token and end session.",
+    description="Revoke refresh token cookie and end session.",
 )
 async def logout(
-    request: LogoutRequest,
+    response: Response,
     oauth_provider: Annotated[OAuthProvider, Depends(get_oauth_provider)],
+    refresh_token: Annotated[
+        str | None,
+        Cookie(alias="refresh_token", description="HttpOnly refresh token cookie"),
+    ] = None,
 ) -> MessageResponse:
     """
     Logout user.
 
-    Revokes refresh token with the auth provider.
-    Client should also clear local tokens.
+    Reads refresh_token from the HttpOnly cookie, revokes it with Keycloak,
+    then clears the cookie. If the cookie is missing (already logged out),
+    the cookie is cleared and success is returned — idempotent by design.
     """
-    await oauth_provider.logout(request.refresh_token)
+    if refresh_token:
+        await oauth_provider.logout(refresh_token)
+    _clear_refresh_cookie(response)
     return MessageResponse(message="Logged out successfully")
 
 

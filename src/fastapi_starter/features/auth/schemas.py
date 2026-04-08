@@ -1,9 +1,5 @@
 from pydantic import BaseModel, Field
 
-from fastapi_starter.core.auth.schemas import (
-    TokenResponse as TokenResponse,  # re-export
-)
-
 
 class TokenRequest(BaseModel):
     """Request to exchange authorization code for tokens."""
@@ -23,22 +19,17 @@ class TokenRequest(BaseModel):
     )
 
 
-class RefreshRequest(BaseModel):
-    """Request to refresh access token."""
+class AccessTokenResponse(BaseModel):
+    """HTTP response body for token endpoints.
 
-    refresh_token: str = Field(
-        min_length=1,
-        description="Refresh token from previous token response",
-    )
+    Intentionally excludes refresh_token — it is sent via HttpOnly cookie,
+    not in the JSON body. TokenResponse (core) retains refresh_token for
+    internal use (OAuthProvider → router).
+    """
 
-
-class LogoutRequest(BaseModel):
-    """Request to logout and revoke tokens."""
-
-    refresh_token: str = Field(
-        min_length=1,
-        description="Refresh token to revoke",
-    )
+    access_token: str = Field(description="JWT access token")
+    token_type: str = Field(default="Bearer", description="Token type")
+    expires_in: int = Field(description="Access token lifetime in seconds")
 
 
 class AuthUrlResponse(BaseModel):
