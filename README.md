@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/python-3.13-blue?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.128-009688?logo=fastapi&logoColor=white)
 ![CI](https://github.com/Prgmturi/fastapi_starter/actions/workflows/ci.yml/badge.svg)
-![License](https://img.shields.io/github/license/Prgmturi/fastapi-starter)
+![License](https://img.shields.io/github/license/Prgmturi/fastapi_starter)
 ![Tests](https://img.shields.io/badge/tests-206%20passed-brightgreen?logo=pytest&logoColor=white)
 
 A backend template built with FastAPI to learn and apply real architectural patterns — hexagonal architecture, SOLID, clean separation of concerns. Useful as a starting point for future projects: the infrastructure is already there, you just add features.
