@@ -23,24 +23,6 @@ class TokenRequest(BaseModel):
     )
 
 
-class RefreshRequest(BaseModel):
-    """Request to refresh access token."""
-
-    refresh_token: str = Field(
-        min_length=1,
-        description="Refresh token from previous token response",
-    )
-
-
-class LogoutRequest(BaseModel):
-    """Request to logout and revoke tokens."""
-
-    refresh_token: str = Field(
-        min_length=1,
-        description="Refresh token to revoke",
-    )
-
-
 class AuthUrlResponse(BaseModel):
     """Authorization URL for OAuth flow."""
 

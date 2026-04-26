@@ -220,6 +220,7 @@ class KeycloakClient:
                 refresh_token=token_data["refresh_token"],
                 token_type=token_data.get("token_type", "Bearer"),
                 expires_in=token_data.get("expires_in", 300),
+                refresh_expires_in=token_data.get("refresh_expires_in", 0),
             )
 
         except (UnauthorizedError, ExternalServiceError):
