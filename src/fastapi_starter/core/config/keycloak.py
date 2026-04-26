@@ -1,4 +1,6 @@
-from pydantic import Field, computed_field
+from typing import Literal
+
+from pydantic import Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,6 +44,38 @@ class KeycloakSettings(BaseSettings):
         default=30,
         description="Request timeout to fetch fresh keys from Keycloak",
     )
+    cookie_name: str = Field(
+        default="__Host-rt",
+        description=(
+            "HttpOnly cookie name for the refresh token. "
+            "The '__Host-' prefix enforces Secure, Path=/, no Domain at browser level."
+        ),
+    )
+    cookie_secure: bool = Field(
+        default=True,
+        description="""Set Secure flag on the refresh token cookie.
+        Disable only in development.""",
+    )
+    cookie_samesite: Literal["lax", "strict", "none"] = Field(
+        default="lax",
+        description="SameSite policy for the refresh token cookie.",
+    )
+    cookie_path: str = Field(
+        default="/",
+        description=(
+            "Path scope for the refresh token cookie. "
+            "Browser sends it only to this path prefix."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_host_prefix_constraints(self) -> "KeycloakSettings":
+        if self.cookie_name.startswith("__Host-"):
+            if self.cookie_path != "/":
+                raise ValueError("__Host- prefix requires cookie_path='/'")
+            if not self.cookie_secure:
+                raise ValueError("__Host- prefix requires cookie_secure=True")
+        return self
 
     @computed_field  # type: ignore[prop-decorator]
     @property

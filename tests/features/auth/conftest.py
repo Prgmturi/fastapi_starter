@@ -8,7 +8,9 @@ from httpx import ASGITransport, AsyncClient
 
 from fastapi_starter.core.auth.dependencies import get_current_user
 from fastapi_starter.core.auth.schemas import TokenResponse
-from fastapi_starter.features.auth.router import get_oauth_provider
+from fastapi_starter.features.auth.router import (
+    get_oauth_provider,
+)
 
 
 @pytest.fixture
@@ -19,6 +21,7 @@ def sample_token_response() -> TokenResponse:
         refresh_token="test-refresh-token",
         token_type="Bearer",
         expires_in=300,
+        refresh_expires_in=1800,
     )
 
 
@@ -26,8 +29,8 @@ def sample_token_response() -> TokenResponse:
 def mock_oauth_provider(sample_token_response):
     """AsyncMock implementing OAuthProvider protocol."""
     mock = AsyncMock()
-    mock.build_authorization_url = (
-        lambda **kwargs: "https://auth.example.com/auth?test=1"
+    mock.build_authorization_url = lambda **kwargs: (
+        "https://auth.example.com/auth?test=1"
     )
     mock.exchange_code = AsyncMock(return_value=sample_token_response)
     mock.refresh_token = AsyncMock(return_value=sample_token_response)
@@ -44,10 +47,23 @@ def app_with_oauth(app, mock_oauth_provider):
 
 @pytest.fixture
 async def oauth_client(app_with_oauth) -> AsyncGenerator[AsyncClient]:
-    """HTTP client with OAuth provider mocked."""
+    """HTTP client with OAuth provider mocked, no cookie set."""
     async with AsyncClient(
         transport=ASGITransport(app=app_with_oauth),
         base_url="http://testserver",
+    ) as ac:
+        yield ac
+
+
+@pytest.fixture
+async def oauth_client_with_cookie(
+    app_with_oauth,
+) -> AsyncGenerator[AsyncClient]:
+    """HTTP client with OAuth provider mocked and a valid refresh cookie set."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_oauth),
+        base_url="http://testserver",
+        cookies={"rt": "valid-rt"},
     ) as ac:
         yield ac
 

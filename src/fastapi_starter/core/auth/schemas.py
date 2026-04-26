@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -9,12 +9,31 @@ class TokenResponse(BaseModel):
     """Token response returned to client after OAuth2 code exchange or refresh."""
 
     access_token: str = Field(description="JWT access token")
-    refresh_token: str = Field(description="Refresh token for renewal")
+    refresh_token: str = Field(
+        description=(
+            "Refresh token — internal use only, set as HttpOnly cookie by the router."
+        )
+    )
+    token_type: str = Field(default="Bearer", description="Token type")
+    expires_in: int = Field(description="Access token lifetime in seconds")
+    refresh_expires_in: int = Field(
+        default=0,
+        description="Refresh token lifetime in seconds (0 = session cookie / never)",
+    )
+
+
+class AccessTokenResponse(BaseModel):
+    """Public API response for token endpoints.
+
+    Excludes refresh_token — that is delivered exclusively via HttpOnly cookie.
+    """
+
+    access_token: str = Field(description="JWT access token")
     token_type: str = Field(default="Bearer", description="Token type")
     expires_in: int = Field(description="Access token lifetime in seconds")
 
 
-class RoleEnum(str, Enum):
+class RoleEnum(StrEnum):
     SUPERADMIN = "superadmin"
     ADMIN = "admin"
     COLLAB = "collaborator"
