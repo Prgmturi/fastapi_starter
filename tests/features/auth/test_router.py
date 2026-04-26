@@ -11,6 +11,7 @@ behaviour, and that the refresh token never leaks into the response body.
 from unittest.mock import AsyncMock
 
 from fastapi_starter.core.exceptions import UnauthorizedError
+from tests.features.auth.conftest import TEST_COOKIE_NAME
 
 
 class TestGetLoginUrl:
@@ -125,7 +126,7 @@ class TestExchangeToken:
         )
 
         assert response.status_code == 200
-        assert "rt" in response.cookies
+        assert TEST_COOKIE_NAME in response.cookies
         set_cookie = response.headers.get("set-cookie", "")
         assert "HttpOnly" in set_cookie
 
@@ -207,7 +208,7 @@ class TestRefreshToken:
         response = await oauth_client_with_cookie.post("/auth/refresh")
 
         assert response.status_code == 200
-        assert "rt" in response.cookies
+        assert TEST_COOKIE_NAME in response.cookies
         set_cookie = response.headers.get("set-cookie", "")
         assert "HttpOnly" in set_cookie
 
