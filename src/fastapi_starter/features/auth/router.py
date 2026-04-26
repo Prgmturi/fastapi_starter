@@ -1,5 +1,6 @@
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 
 from fastapi_starter.core.auth import CurrentUser, OAuthProvider
@@ -10,6 +11,7 @@ from fastapi_starter.core.auth.cookies import (
 )
 from fastapi_starter.core.auth.schemas import AccessTokenResponse
 from fastapi_starter.core.config.keycloak import KeycloakSettings
+from fastapi_starter.core.exceptions import ExternalServiceError, UnauthorizedError
 from fastapi_starter.core.logging import get_logger
 from fastapi_starter.features.auth.schemas import (
     AuthUrlResponse,
@@ -190,10 +192,10 @@ async def logout(
 
     try:
         await oauth_provider.logout(current_refresh_token)
-    except Exception:
+    except (ExternalServiceError, UnauthorizedError, httpx.HTTPError) as exc:
         # Revocation failure must not prevent cookie clearance: the session
         # is already inaccessible to the client once the cookie is gone.
-        logger.warning("logout_revocation_failed_clearing_cookie_anyway")
+        logger.warning("logout_revocation_failed", exc_info=exc)
 
     clear_refresh_cookie(response, keycloak_settings)
     return MessageResponse(message="Logged out successfully")

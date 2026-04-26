@@ -10,7 +10,7 @@ behaviour, and that the refresh token never leaks into the response body.
 
 from unittest.mock import AsyncMock
 
-from fastapi_starter.core.exceptions import UnauthorizedError
+from fastapi_starter.core.exceptions import ExternalServiceError, UnauthorizedError
 from tests.features.auth.conftest import TEST_COOKIE_NAME
 
 
@@ -266,7 +266,7 @@ class TestLogout:
     ):
         """[HP] Even if Keycloak revocation fails, cookie is cleared."""
         mock_oauth_provider.logout = AsyncMock(
-            side_effect=Exception("Keycloak unreachable")
+            side_effect=ExternalServiceError("Keycloak unreachable")
         )
 
         response = await oauth_client_with_cookie.post("/auth/logout")
