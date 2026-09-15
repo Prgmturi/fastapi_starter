@@ -20,9 +20,9 @@ services:
     image: postgres:17-alpine
     container_name: keycloak-db
     environment:
-      POSTGRES_DB: ${KEYCLOAK_DB_NAME}
-      POSTGRES_USER: ${KEYCLOAK_DB_USER}
-      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      POSTGRES_DB: ${KEYCLOAK_DB_NAME:?copia infra/.env.example in infra/.env}
+      POSTGRES_USER: ${KEYCLOAK_DB_USER:?copia infra/.env.example in infra/.env}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?copia infra/.env.example in infra/.env}
     volumes:
       - keycloak_db_data:/var/lib/postgresql/data
     networks:
@@ -38,7 +38,9 @@ services:
   # Keycloak
   # ---------------------------------------------------------------------------
   keycloak:
-    image: quay.io/keycloak/keycloak:latest
+    # Versione pinnata: :latest cambia sotto i piedi e può rimuovere
+    # variabili d'ambiente da un giorno all'altro.
+    image: quay.io/keycloak/keycloak:26.7.3
     container_name: keycloak
     command: start-dev
     environment:
@@ -48,8 +50,11 @@ services:
       KC_DB_USERNAME: ${KEYCLOAK_DB_USER}
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
       # Admin
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      # Da Keycloak 26 i nomi sono KC_BOOTSTRAP_ADMIN_*; KEYCLOAK_ADMIN
+      # e KEYCLOAK_ADMIN_PASSWORD funzionano ancora ma emettono
+      # KC-SERVICES0110 (deprecated) e spariranno.
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:?copia infra/.env.example in infra/.env}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?copia infra/.env.example in infra/.env}
       # Features
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "true"

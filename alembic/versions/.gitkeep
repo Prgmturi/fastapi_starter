@@ -1,0 +1,6 @@
+Questo file esiste solo perché git non traccia le directory vuote.
+
+Senza, alembic/versions/ non arriva in un clone pulito e il primo
+"alembic revision" fallisce con "Path doesn't exist".
+
+Puoi cancellarlo appena la prima migrazione è committata.

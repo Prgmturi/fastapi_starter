@@ -64,6 +64,41 @@ class TestExtractUser:
 
         assert user.username == sample_claims["sub"]
 
+    def test_email_as_username_is_accepted(self, extractor, sample_claims):
+        """[HP] Un realm con "Email as username" deve potersi autenticare.
+
+        WHY: regressione. User.username aveva pattern ^[a-zA-Z0-9_-]+$,
+        che rifiuta ogni preferred_username in forma di email.
+        """
+        sample_claims["preferred_username"] = "mario.rossi@example.com"
+
+        user = extractor.extract_user(sample_claims)
+
+        assert user.username == "mario.rossi@example.com"
+
+    def test_user_validation_failure_raises_unauthorized_not_500(
+        self, extractor, sample_claims
+    ):
+        """[SEC] Un claim che non supera la validazione di User è 401, non 500.
+
+        WHY: User(...) veniva costruito FUORI dal try/except che protegge
+        TokenPayload. Un preferred_username non mappabile usciva come
+        PydanticValidationError nuda: gli exception handler la trasformano
+        in 500, cioè un fallimento di autenticazione riportato come guasto
+        del server. Gli avvisi di sicurezza finivano nel canale sbagliato.
+        """
+        sample_claims["preferred_username"] = "evil\nadmin"
+
+        with pytest.raises(UnauthorizedError):
+            extractor.extract_user(sample_claims)
+
+    def test_invalid_email_claim_raises_unauthorized(self, extractor, sample_claims):
+        """[EC] Un claim email malformato è 401, non 500."""
+        sample_claims["email"] = "non-una-email"
+
+        with pytest.raises(UnauthorizedError):
+            extractor.extract_user(sample_claims)
+
     def test_invalid_claims_missing_sub_raises_unauthorized(self, extractor):
         """[EC] Claims without 'sub' raise UnauthorizedError.
 

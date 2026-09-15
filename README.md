@@ -56,9 +56,16 @@ src/fastapi_starter/
 git clone https://github.com/Prgmturi/fastapi_starter.git
 cd fastapi-starter
 
-# 2. Configure
-cp .env.example .env
-# Fill in KEYCLOAK_CLIENT_SECRET after completing the Keycloak setup below
+# 2. Configure — three .env files, one per stack.
+# Docker Compose reads .env from the directory of each compose file,
+# so a single .env in the repo root is NOT enough.
+cp .env.example .env              # read by FastAPI
+cp docker/.env.example docker/.env  # app database container
+cp infra/.env.example infra/.env    # Keycloak + its database container
+# Fill in KEYCLOAK_CLIENT_SECRET after completing the Keycloak setup below.
+# Keep DATABASE_* in .env and APP_DB_* in docker/.env in sync — they
+# describe the same database, and the compose files refuse to start if
+# a required variable is missing.
 
 # 3. Start infrastructure
 docker compose -f infra/docker-compose.yml up -d    # Keycloak + its database
@@ -74,7 +81,8 @@ Open http://localhost:8000/docs.
 
 ### Keycloak setup (first time)
 
-1. Open http://localhost:8080 → log in with `admin` / `admin`
+1. Open http://localhost:8080 → log in with the credentials from
+   `infra/.env` (`KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD`)
 2. Create realm: `fastapi-starter`
 3. Create client: `fastapi-backend`
    - Client authentication: **ON**
@@ -168,11 +176,13 @@ uv run alembic upgrade head
 uv run alembic downgrade -1
 ```
 
-Define models by subclassing `Base` from `core/database/manager.py`. Import them in `alembic/env.py` before running autogenerate.
+Define models by subclassing `Base` from `core/database/manager.py`. Import them in `alembic/env.py` before running autogenerate — if you forget, `--autogenerate` aborts with an explanation instead of emitting a migration that drops every table in the database.
 
 ## Configuration reference
 
-All settings are read from `.env`. See `.env.example` for the full list.
+All application settings are read from `.env` in the repo root — see
+`.env.example` for the full list. The two compose stacks read their own
+`docker/.env` and `infra/.env`.
 
 Two separate PostgreSQL instances:
 - **App DB** — port `5433` (`docker/docker-compose.yaml`)

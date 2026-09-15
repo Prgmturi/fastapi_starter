@@ -21,9 +21,9 @@ services:
     image: postgres:17-alpine
     container_name: app-db
     environment:
-      POSTGRES_DB: ${APP_DB_NAME}
-      POSTGRES_USER: ${APP_DB_USER}
-      POSTGRES_PASSWORD: ${APP_DB_PASSWORD}
+      POSTGRES_DB: ${APP_DB_NAME:?copia docker/.env.example in docker/.env}
+      POSTGRES_USER: ${APP_DB_USER:?copia docker/.env.example in docker/.env}
+      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:?copia docker/.env.example in docker/.env}
     volumes:
       - app_db_data:/var/lib/postgresql/data
     ports:

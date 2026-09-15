@@ -54,12 +54,26 @@ class User(BaseModel):
     id: str = Field(
         min_length=1, max_length=255, description="Unique user ID (from 'sub' claim)"
     )
+    # Il valore arriva da un JWT già verificato crittograficamente: qui non
+    # decidiamo quali username un utente può registrare — quello lo decide
+    # Keycloak — ma cosa può attraversare log e risposte senza fare danni.
+    # Vietiamo solo whitespace e caratteri di controllo (log injection, CRLF
+    # nelle header); tutto il resto passa.
+    #
+    # Il pattern precedente era ^[a-zA-Z0-9_-]+$ con min_length=3: rifiutava
+    # "mario.rossi@example.com", cioè il preferred_username che Keycloak
+    # emette appena si abilita "Email as username". Ogni login valido
+    # diventava un errore.
+    #
+    # Nota: l'ancoraggio $ è affidabile perché pydantic v2 usa rust-regex,
+    # dove $ significa fine-stringa stretta. Con regex_engine="python-re"
+    # il $ tollererebbe un \n finale e "evil\n" passerebbe.
     username: str = Field(
-        min_length=3,
-        max_length=50,
-        pattern=r"^[a-zA-Z0-9_-]+$",
-        description="Username (3-50 chars, alphanumeric + _ -)",
-        examples=["mario_rossi", "e37e9825-ac1c-4bd3-8380-579af43eac4823"],
+        min_length=1,
+        max_length=255,
+        pattern=r"^[^\s\x00-\x1f\x7f]+$",
+        description="Username from the IdP (no whitespace, no control chars)",
+        examples=["mario_rossi", "mario.rossi@example.com"],
     )
     email: EmailStr | None = Field(
         default=None, description="Email address (validated format)"

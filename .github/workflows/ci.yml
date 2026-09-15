@@ -59,3 +59,28 @@ jobs:
 
       - name: Tests
         run: uv run pytest --tb=short
+
+  docker:
+    name: Build container image
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # Il codice sorgente passava tutti i controlli mentre l'immagine
+      # non compilava: pyproject dichiara readme = "README.md" ma il builder
+      # non lo copiava. Nessun job verificava l'artefatto che si distribuisce.
+      # Questo job chiude quel buco.
+      - name: Build image
+        run: docker build -f docker/Dockerfile -t fastapi-starter:ci .
+
+      # Smoke test senza servizi esterni: create_app() gira all'import di
+      # main.py, quindi questo esercita settings, logging, middleware e router.
+      # Database e Keycloak restano fuori — vengono toccati solo nel lifespan.
+      - name: Smoke test
+        run: |
+          docker run --rm --entrypoint python fastapi-starter:ci \
+            -c "from fastapi_starter.main import app; assert app.routes; print(f'{len(app.routes)} routes registered')"

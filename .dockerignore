@@ -1,0 +1,52 @@
+# =============================================================================
+# Docker build context
+# =============================================================================
+# Tutto quello che elencato qui non viene inviato al daemon Docker.
+# Senza questo file il contesto è ~265 MB (.venv 201M, .mypy_cache 59M):
+# ogni build copia l'intero virtualenv dell'host per poi ignorarlo.
+#
+# ATTENZIONE: README.md, pyproject.toml, uv.lock, src/, alembic/ e alembic.ini
+# servono alla build — non aggiungerli qui.
+# =============================================================================
+
+# Virtualenv e artefatti Python
+.venv/
+venv/
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info/
+
+# Cache dei tool
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Git e metadati di repository
+.git/
+.gitignore
+.github/
+.pre-commit-config.yaml
+
+# Segreti — non devono mai entrare nel contesto di build
+.env
+.env.*
+!.env.example
+
+# Test e documentazione: non fanno parte dell'immagine di runtime
+tests/
+docs/
+
+# Compose e Dockerfile stessi (il Dockerfile è passato con -f)
+docker/
+infra/
+
+# Editor e sistema operativo
+.idea/
+.vscode/
+.claude/
+.DS_Store
