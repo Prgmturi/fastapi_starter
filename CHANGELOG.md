@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/Prgmturi/fastapi_starter/compare/v0.1.0...v0.2.0) (2026-10-09)
+
+
+### Features
+
+* enhance Docker support and environment configuration ([#25](https://github.com/Prgmturi/fastapi_starter/issues/25)) ([8da4515](https://github.com/Prgmturi/fastapi_starter/commit/8da45152c706e711d4510884c0327fb55cc6cbff))
+
 ## 0.1.0 (2026-04-26)
 
 
