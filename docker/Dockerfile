@@ -13,7 +13,11 @@ ENV UV_LINK_MODE=copy \
 # La versione cambia silenziosamente e può rompere la build.
 COPY --from=ghcr.io/astral-sh/uv:0.7.8 /uv /usr/local/bin/uv
 
-COPY pyproject.toml uv.lock ./
+# README.md va copiato insieme al pyproject: [project] dichiara
+# readme = "README.md" e hatchling lo legge in fase di build.
+# Senza, "uv sync" fallisce con:
+#   OSError: Readme file does not exist: README.md
+COPY pyproject.toml uv.lock README.md ./
 
 # --frozen: usa esattamente uv.lock, non aggiorna niente.
 #   Garantisce build riproducibili — stessa build oggi e fra 6 mesi.
@@ -21,7 +25,9 @@ COPY pyproject.toml uv.lock ./
 #   Perché? Il codice sorgente non è ancora stato copiato.
 #   Se lo facessimo dopo il COPY src, ogni modifica al codice
 #   invaliderebbe questo layer cache e rinstallare tutto.
-RUN uv sync --frozen --no-install-project
+# --no-dev: esclude il dependency-group dev (pytest, mypy, ruff, pre-commit).
+#   Non servono a runtime e allargherebbero la superficie dell'immagine.
+RUN uv sync --frozen --no-install-project --no-dev
 
 # Solo ora copiamo il codice sorgente.
 # Questo layer cambia ad ogni modifica del codice — è giusto che sia qui,
@@ -33,7 +39,7 @@ COPY alembic.ini ./
 # Ora installiamo anche il progetto stesso (fastapi_starter come package).
 # uv legge [build-system] e [tool.hatch.build.targets.wheel] dal pyproject.toml
 # e installa src/fastapi_starter come package editabile nel .venv.
-RUN uv sync --frozen
+RUN uv sync --frozen --no-dev
 
 
 # =============================================================================

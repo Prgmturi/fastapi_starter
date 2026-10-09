@@ -63,23 +63,28 @@ class KeycloakClaimExtractor:
         Raises:
             UnauthorizedError: If claims cannot be parsed as a valid Keycloak payload.
         """
+        # Il try copre l'intera mappatura claims -> User, non solo il primo
+        # model_validate. Anche User(...) valida (username, email, lunghezze)
+        # e prima stava fuori dal try: un token firmato correttamente ma con
+        # claim che non riusciamo a mappare usciva come ValidationError nuda,
+        # cioè 500. Un token che non sappiamo interpretare è un fallimento di
+        # autenticazione (401), mai un guasto del server.
         try:
             payload = TokenPayload.model_validate(claims)
+            roles = self._collect_roles(payload)
+
+            return User(
+                id=payload.sub,
+                username=payload.preferred_username or payload.sub,
+                email=payload.email,
+                email_verified=payload.email_verified,
+                first_name=payload.given_name,
+                last_name=payload.family_name,
+                roles=roles,
+            )
         except PydanticValidationError as e:
             logger.warning("claim_extraction_failed", error=str(e))
             raise UnauthorizedError("Invalid token format") from e
-
-        roles = self._collect_roles(payload)
-
-        return User(
-            id=payload.sub,
-            username=payload.preferred_username or payload.sub,
-            email=payload.email,
-            email_verified=payload.email_verified,
-            first_name=payload.given_name,
-            last_name=payload.family_name,
-            roles=roles,
-        )
 
     def _collect_roles(self, payload: TokenPayload) -> list[RoleEnum]:
         """Collect roles from realm_access and resource_access, deduped."""

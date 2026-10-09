@@ -139,31 +139,54 @@ class TestUser:
         assert user.last_name == "User"
         assert user.roles == [RoleEnum.USER]
 
-    def test_username_rejects_spaces(self):
-        """[EC] Username pattern ^[a-zA-Z0-9_-]+$ rejects spaces."""
+    def test_username_rejects_whitespace(self):
+        """[EC] Whitespace is rejected — spezza il parsing dei log e le header."""
+        for bad in ("bad name", "leading ", " trailing"):
+            with pytest.raises(ValidationError):
+                _make_user(username=bad)
+
+    def test_username_rejects_control_characters(self):
+        r"""[SEC] Newline, tab, NUL, CR e DEL sono rifiutati.
+
+        WHY: username finisce nell'output di structlog e nelle risposte API.
+        Un preferred_username come "evil\nlevel=error" forgerebbe una riga
+        di log; un \r\n in una header è response splitting.
+        """
+        for bad in ("evil\nadmin", "a\tb", "cr\rlf", "nul\x00byte", "del\x7f"):
+            with pytest.raises(ValidationError):
+                _make_user(username=bad)
+
+    def test_username_accepts_email_form(self):
+        """[HP] Un'email come username deve essere accettata.
+
+        WHY: regressione. Keycloak emette l'email come preferred_username
+        appena si abilita "Email as username". Il pattern precedente
+        (^[a-zA-Z0-9_-]+$) trasformava ogni login di quei realm in un 500.
+        """
+        user = _make_user(username="mario.rossi@example.com")
+
+        assert user.username == "mario.rossi@example.com"
+
+    def test_username_accepts_non_ascii(self):
+        """[EC] Gli username non-ASCII sono validi — Keycloak li consente."""
+        user = _make_user(username="José")
+
+        assert user.username == "José"
+
+    def test_username_length_boundaries(self):
+        """[EC] Vuoto rifiutato, 1 char accettato, 255 accettato, 256 rifiutato.
+
+        WHY: il limite è 255 come per id — è il massimo che Keycloak stesso
+        ammette. Il vecchio limite di 50 era arbitrario.
+        """
         with pytest.raises(ValidationError):
-            _make_user(username="bad name")
+            _make_user(username="")
 
-    def test_username_rejects_special_chars(self):
-        """[EC] Username pattern rejects @, !, etc."""
+        assert _make_user(username="a").username == "a"
+        assert _make_user(username="u" * 255).username == "u" * 255
+
         with pytest.raises(ValidationError):
-            _make_user(username="bad@name!")
-
-    def test_username_min_length_boundary(self):
-        """[EC] Username with 2 chars rejected, 3 chars accepted."""
-        with pytest.raises(ValidationError):
-            _make_user(username="ab")
-
-        user = _make_user(username="abc")
-        assert user.username == "abc"
-
-    def test_username_max_length_boundary(self):
-        """[EC] Username with 51 chars rejected, 50 chars accepted."""
-        with pytest.raises(ValidationError):
-            _make_user(username="a" * 51)
-
-        user = _make_user(username="a" * 50)
-        assert user.username == "a" * 50
+            _make_user(username="u" * 256)
 
     def test_email_optional_accepts_none(self):
         """[HP] email=None is valid (field is optional)."""
