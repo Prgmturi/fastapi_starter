@@ -1,6 +1,6 @@
 [project]
 name = "fastapi_starter"
-version = "0.1.0"
+version = "0.2.0"
 description = "Fastapi starter with settings, logging, auth"
 readme = "README.md"
 requires-python = ">=3.13"
