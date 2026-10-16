@@ -21,8 +21,10 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
 
     steps:
+      # No release-type input: with it the action builds its config from the
+      # inputs alone and ignores release-please-config.json (bump rules, tag
+      # format). Everything lives in that file and in the manifest.
       - uses: googleapis/release-please-action@v5
         id: release
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          release-type: python

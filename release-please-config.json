@@ -8,7 +8,8 @@
       "version-file": "pyproject.toml",
       "changelog-path": "CHANGELOG.md",
       "bump-minor-pre-major": true,
-      "bump-patch-for-minor-pre-major": true
+      "bump-patch-for-minor-pre-major": true,
+      "include-component-in-tag": false
     }
   }
 }
