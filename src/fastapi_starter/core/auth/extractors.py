@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
 
 from fastapi_starter.core.auth.schemas import RoleEnum, User
@@ -26,7 +26,7 @@ class TokenPayload(BaseModel):
 
     # User info (Keycloak standard claims)
     preferred_username: str | None = Field(default=None, description="Username")
-    email: EmailStr | None = Field(default=None, description="User email")
+    email: str | None = Field(default=None, description="User email")
     email_verified: bool = Field(default=False, description="Email verified flag")
     given_name: str | None = Field(default=None, description="First name")
     family_name: str | None = Field(default=None, description="Last name")
@@ -76,10 +76,12 @@ class KeycloakClaimExtractor:
             return User(
                 id=payload.sub,
                 username=payload.preferred_username or payload.sub,
-                email=payload.email,
+                # An empty claim is a field the user never filled in: absent,
+                # not a reason to refuse the login.
+                email=payload.email or None,
                 email_verified=payload.email_verified,
-                first_name=payload.given_name,
-                last_name=payload.family_name,
+                first_name=payload.given_name or None,
+                last_name=payload.family_name or None,
                 roles=roles,
             )
         except PydanticValidationError as e:

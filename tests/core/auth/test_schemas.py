@@ -194,10 +194,71 @@ class TestUser:
 
         assert user.email is None
 
-    def test_email_validates_format(self):
-        """[EC] Invalid email format raises ValidationError."""
+    def test_email_accepts_addresses_a_strict_validator_refuses(self):
+        """[HP] Reserved domains pass: Keycloak already validated the address.
+
+        WHY: EmailStr refused special-use domains such as .local, so
+        mario@azienda.local could never log in (measured 16 October 2026).
+        """
+        for address in ("mario@azienda.local", "ops@intranet.test"):
+            assert _make_user(email=address).email == address
+
+    def test_email_format_is_not_checked(self):
+        """[EC] No format check: the IdP owns what an email address is.
+
+        WHY: deliberate. Here only what can harm logs and responses is
+        refused, as for username.
+        """
+        assert _make_user(email="not-an-email").email == "not-an-email"
+
+    def test_email_rejects_control_characters(self):
+        """[SEC] Newline, tab, CR, NUL and DEL in the email are rejected."""
+        for bad in (
+            "a@b.com\nlevel=error",
+            "a\t@b.com",
+            "a@b.com\r",
+            "a\x00@b.com",
+            "a\x7f@b.com",
+        ):
+            with pytest.raises(ValidationError):
+                _make_user(email=bad)
+
+    def test_email_length_boundaries(self):
+        """[EC] Empty rejected, 320 accepted, 321 rejected (64 + '@' + 255)."""
         with pytest.raises(ValidationError):
-            _make_user(email="not-an-email")
+            _make_user(email="")
+
+        longest = "a" * 310 + "@example.c"
+        assert len(longest) == 320
+        assert _make_user(email=longest).email == longest
+
+        with pytest.raises(ValidationError):
+            _make_user(email="a" + longest)
+
+    def test_names_up_to_255_characters_accepted(self):
+        """[EC] 255 accepted, 256 rejected — the limit Keycloak itself applies.
+
+        WHY: the old limit was 100. A given_name of 120 characters, accepted
+        by Keycloak, made every login of that user fail with 401.
+        """
+        for field in ("first_name", "last_name"):
+            assert getattr(_make_user(**{field: "n" * 255}), field) == "n" * 255
+
+            with pytest.raises(ValidationError):
+                _make_user(**{field: "n" * 256})
+
+    def test_names_reject_control_characters(self):
+        """[SEC] Control characters in names are rejected, as in username."""
+        for field in ("first_name", "last_name"):
+            for bad in ("Mario\nRossi", "Ma\x00rio", "Mario\x7f"):
+                with pytest.raises(ValidationError):
+                    _make_user(**{field: bad})
+
+    def test_names_accept_spaces_and_non_ascii(self):
+        """[HP] Spaces, apostrophes and accents are part of real names."""
+        user = _make_user(first_name="Maria Grazia", last_name="D'Angelo Žák")
+
+        assert user.full_name == "Maria Grazia D'Angelo Žák"
 
     def test_id_min_length_rejects_empty(self):
         """[EC] Empty string for id is rejected (min_length=1)."""
