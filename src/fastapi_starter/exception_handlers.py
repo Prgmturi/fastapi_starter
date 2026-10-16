@@ -8,7 +8,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from fastapi_starter.core.exceptions import AppExceptionError
 from fastapi_starter.core.logging import get_logger
-from fastapi_starter.core.problem_details import problem_response
+from fastapi_starter.core.problem_details import (
+    INTERNAL_ERROR_DETAIL,
+    problem_response,
+)
 
 logger = get_logger(__name__)
 
@@ -72,12 +75,17 @@ def register_exception_handlers(app: FastAPI) -> None:
             422, "Request validation failed", extensions={"errors": errors}
         )
 
+    # Last resort. Exceptions from the routes are answered by
+    # UnhandledExceptionMiddleware, whose 500 keeps the CORS, security and
+    # X-Request-ID headers. Starlette runs this handler outside every
+    # middleware, so it only gets what a middleware raises, and its 500 has
+    # none of those headers.
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(
         request: Request,
         exc: Exception,
     ) -> Response:
-        """Handle any unhandled exception."""
+        """Handle an exception raised outside UnhandledExceptionMiddleware."""
         logger.error(
             "unhandled_exception",
             error_type=type(exc).__name__,
@@ -86,4 +94,4 @@ def register_exception_handlers(app: FastAPI) -> None:
             method=request.method,
             exc_info=True,
         )
-        return problem_response(500, "An unexpected error occurred.")
+        return problem_response(500, INTERNAL_ERROR_DETAIL)

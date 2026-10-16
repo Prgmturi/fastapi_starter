@@ -13,15 +13,26 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.datastructures import State
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from fastapi_starter.core.config import DatabaseSettings, KeycloakSettings
+from fastapi_starter.core.config import (
+    DatabaseSettings,
+    KeycloakSettings,
+    ServerSettings,
+)
+from fastapi_starter.core.error_middleware import UnhandledExceptionMiddleware
+from fastapi_starter.core.logging import LoggingMiddleware
+from fastapi_starter.core.security import SecureHeadersMiddleware
 from fastapi_starter.features.auth.client import KeycloakClient
 from fastapi_starter.setup import (
     create_keycloak_http_client,
     init_auth_service,
     init_database,
     init_oauth_provider,
+    register_middleware,
     shutdown_services,
 )
 
@@ -259,3 +270,26 @@ class TestShutdownServices:
     async def test_empty_services_list(self):
         """[EC] Empty list -> no errors, no calls."""
         await shutdown_services([])  # Should not raise
+
+
+class TestRegisterMiddleware:
+    """register_middleware() — the order the middleware runs in.
+
+    WHY: a response gets a middleware's headers only if it passes through
+    that middleware. The error middleware must be the closest to the
+    routes, or its 500 skips the others.
+    """
+
+    def test_error_middleware_is_closest_to_the_routes(self):
+        """[HP] From outermost to innermost, as the docstring says."""
+        app = FastAPI()
+
+        register_middleware(app, ServerSettings())
+
+        assert [middleware.cls for middleware in app.user_middleware] == [
+            LoggingMiddleware,
+            TrustedHostMiddleware,
+            SecureHeadersMiddleware,
+            CORSMiddleware,
+            UnhandledExceptionMiddleware,
+        ]

@@ -21,6 +21,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 PROBLEM_JSON = "application/problem+json"
 
+# Detail of every 500: the cause goes to the logs, never to the client.
+INTERNAL_ERROR_DETAIL = "An unexpected error occurred."
+
 # Defined by the RFC: an extension never replaces them, or status and
 # title could disagree with the response.
 _STANDARD_MEMBERS = frozenset({"type", "title", "status", "detail", "instance"})

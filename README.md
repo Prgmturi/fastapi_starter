@@ -181,6 +181,7 @@ Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) pr
 - An invalid request (422) adds `errors`, one entry per invalid field: `{"loc": ["query", "limit"], "msg": "Input should be a valid integer, …", "type": "int_parsing"}`. The rejected value is not sent back.
 - To return an error from your code, raise a subclass of `AppExceptionError` from `core/exceptions.py` (`NotFoundError`, `ConflictError`, `ForbiddenError`, …). Its `details` become extra members, like `resource` and `identifier` above.
 - OpenAPI documents this format as the `default` response of every route.
+- Every response, 500 included, has an `X-Request-ID` header: the logs of that request carry the same id. An unexpected error answers only `"An unexpected error occurred."`; the cause and the traceback go to the logs, also with `APP_DEBUG=true`.
 
 ## Running tests
 

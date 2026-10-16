@@ -1,6 +1,8 @@
 """Tests for exception handlers — every error as an RFC 9457 problem.
 
 Module under test: src/fastapi_starter/exception_handlers.py
+Also exercised: core/problem_details.py (the body) and
+core/error_middleware.py (500s from the routes)
 Layer: Application integration (HTTP client against the real app)
 
 WHY these tests exist: exception handlers are the last line of defense.
@@ -16,6 +18,7 @@ from http import HTTPStatus
 import pytest
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
+from structlog.testing import capture_logs
 
 from fastapi_starter.core.auth.dependencies import AdminUser, CurrentUser
 from fastapi_starter.core.exceptions import (
@@ -364,7 +367,11 @@ class TestRequestValidationHandler:
 
 
 class TestUnhandledExceptionHandler:
-    """Catch-all handler for unexpected exceptions.
+    """Unexpected exceptions: a generic 500 with the usual headers.
+
+    UnhandledExceptionMiddleware answers the exceptions from the routes,
+    inside the middleware stack. The handler for Exception stays as the
+    last resort for exceptions raised by a middleware.
 
     WHY: Security requirement. Unhandled exceptions must not leak
     stack traces or internal details. The response must always be
@@ -399,3 +406,61 @@ class TestUnhandledExceptionHandler:
         assert body["detail"] == "An unexpected error occurred."
         assert "secret" not in response.text
         assert "password" not in response.text
+
+    async def test_500_keeps_the_headers_of_every_response(self, app, client):
+        """[HP] A 500 has X-Request-ID, the security headers and CORS.
+
+        WHY: Starlette runs the handler for Exception in ServerErrorMiddleware,
+        outside every middleware of the app. The 500 lacked X-Request-ID, so
+        nobody could find it in the logs, and CORS, so the frontend could not
+        read it and saw a "CORS error" instead of the 500.
+        """
+
+        @app.get("/exc/crash")
+        async def _():
+            raise RuntimeError("bug")
+
+        response = await client.get(
+            "/exc/crash", headers={"Origin": "http://localhost:3000"}
+        )
+
+        assert_problem(response, 500)
+        assert response.headers["X-Request-ID"]
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert (
+            response.headers["access-control-allow-origin"] == "http://localhost:3000"
+        )
+
+    async def test_500_is_logged_as_a_completed_request(self, app, client):
+        """[HP] request_completed is logged for a 500 too, with its status.
+
+        WHY: the exception used to cross LoggingMiddleware, which then never
+        wrote request_completed: the failed request had no line with its
+        status and duration.
+        """
+
+        @app.get("/exc/crash")
+        async def _():
+            raise RuntimeError("bug")
+
+        with capture_logs() as logs:
+            await client.get("/exc/crash")
+
+        completed = [log for log in logs if log["event"] == "request_completed"]
+        assert [log["status_code"] for log in completed] == [500]
+
+    async def test_middleware_crash_still_gets_a_problem(self, app, client):
+        """[EC] An exception raised by a middleware still gets a problem 500.
+
+        WHY: the error middleware only sees what happens closer to the
+        routes. For a bug in an outer middleware, the handler registered
+        for Exception stays as the last resort, without those headers.
+        """
+
+        @app.middleware("http")
+        async def broken(request, call_next):
+            raise RuntimeError("middleware bug")
+
+        response = await client.get("/health/live")
+
+        assert_problem(response, 500)
