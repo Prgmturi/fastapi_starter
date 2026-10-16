@@ -1,10 +1,9 @@
 # fastapi-starter
 
 ![Python](https://img.shields.io/badge/python-3.13-blue?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.128-009688?logo=fastapi&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![CI](https://github.com/Prgmturi/fastapi_starter/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/github/license/Prgmturi/fastapi_starter)
-![Tests](https://img.shields.io/badge/tests-206%20passed-brightgreen?logo=pytest&logoColor=white)
 
 A backend template built with FastAPI to learn and apply real architectural patterns — hexagonal architecture, SOLID, clean separation of concerns. Useful as a starting point for future projects: the infrastructure is already there, you just add features.
 
@@ -18,7 +17,7 @@ A backend template built with FastAPI to learn and apply real architectural patt
 | **Config** | Pydantic Settings, layered by domain (`AppSettings`, `DatabaseSettings`, etc.), loaded from `.env`. |
 | **Logging** | structlog. JSON in production with service metadata, colorized in development. Request IDs on every log line. |
 | **Errors** | Domain exceptions (`NotFoundError`, `UnauthorizedError`, ...) with global handlers. No library exceptions leak to the client. |
-| **Testing** | 206 tests. Fully async, no real database or auth server needed. |
+| **Testing** | Fully async, no real database or auth server needed. Independent of the local `.env`. CI fails below a coverage threshold. |
 
 ## Architecture
 
@@ -74,7 +73,7 @@ docker compose -f docker/docker-compose.yaml up -d  # App database (port 5433)
 # 4. Install and run
 uv sync
 uv run alembic upgrade head
-uv run uvicorn fastapi_starter.main:app --reload
+uv run uvicorn fastapi_starter.main:create_app --factory --reload
 ```
 
 Open http://localhost:8000/docs.
@@ -160,13 +159,15 @@ async def delete_user(user: Annotated[User, Depends(require_roles([RoleEnum.SUPE
 ## Running tests
 
 ```bash
-uv run pytest                              # all 206 tests
+uv run pytest                              # all tests
 uv run pytest tests/core/auth/            # a module
-uv run pytest tests/core/auth/test_service.py::test_validate_token  # one test
-uv run pytest --cov=src/fastapi_starter   # with coverage
+uv run pytest tests/core/auth/test_service.py::TestValidateToken  # one class
+uv run pytest --cov                        # with coverage, as CI runs it
 ```
 
 Tests are fully async and use `AsyncMock` stubs — no real database or Keycloak instance needed. The root `conftest.py` provides fixtures for the app, HTTP client, mock services, and sample users at different role levels.
+
+Tests never read your local `.env` or exported `APP_*`, `KEYCLOAK_*` variables: an autouse fixture in `conftest.py` switches both off. A test that needs specific settings builds them and passes them to `create_app(settings)`. CI runs the suite twice, the second time with a production-like `.env`, and fails if coverage drops below `fail_under` in `pyproject.toml`.
 
 ## Database migrations
 
@@ -202,7 +203,7 @@ SERVER_CORS_ORIGINS=["http://localhost:3000"]
 
 ## Stack
 
-- [FastAPI](https://fastapi.tiangolo.com/) 0.128
+- [FastAPI](https://fastapi.tiangolo.com/)
 - [SQLAlchemy](https://docs.sqlalchemy.org/en/20/) 2.0 (async)
 - [Alembic](https://alembic.sqlalchemy.org/)
 - [Keycloak](https://www.keycloak.org/) via [python-keycloak](https://python-keycloak.readthedocs.io/)

@@ -87,3 +87,23 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 addopts = ["-v", "--tb=short"]
+# pytest 9: a typo in a marker or in this section becomes an error instead
+# of a warning (strict_markers, strict_config). Also enables strict_xfail
+# and strict_parametrization_ids.
+strict = true
+
+
+# =============================================================================
+# COVERAGE — CI runs "pytest --cov" and fails below fail_under
+# =============================================================================
+[tool.coverage.run]
+source = ["fastapi_starter"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 95
+show_missing = true
+skip_covered = true
+exclude_also = [
+    'if __name__ == "__main__":',
+]

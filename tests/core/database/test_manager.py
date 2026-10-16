@@ -24,7 +24,6 @@ def db_settings() -> DatabaseSettings:
         name="testdb",
         user="test",
         password="test",
-        _env_file=None,  # type: ignore[call-arg]
     )
 
 

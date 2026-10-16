@@ -8,6 +8,10 @@ WHY these tests exist: Health endpoints are called by Kubernetes
 or traffic gets routed to broken instances.
 """
 
+import pytest
+
+from fastapi_starter.core.config import AppSettings, ServerSettings, Settings
+
 
 class TestLiveness:
     """GET /health/live — liveness probe.
@@ -41,6 +45,28 @@ class TestLiveness:
 
         assert "version" in body
         assert "environment" in body
+
+
+class TestLivenessSettingsSource:
+    """GET /health/live reports the settings of the app that answers.
+
+    WHY: the probe used to read the global settings (get_settings), so an
+    app built with create_app(settings) could report another environment.
+    """
+
+    @pytest.fixture
+    def settings(self) -> Settings:
+        """Overrides the root fixture: an app built for staging."""
+        return Settings(
+            app=AppSettings(environment="staging"),
+            server=ServerSettings(trusted_hosts=["testserver"]),
+        )
+
+    async def test_reports_environment_of_this_app(self, client):
+        """[HP] environment comes from app.state.settings, not from .env."""
+        response = await client.get("/health/live")
+
+        assert response.json()["environment"] == "staging"
 
 
 class TestReadiness:

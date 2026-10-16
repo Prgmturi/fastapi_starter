@@ -57,8 +57,20 @@ jobs:
       - name: Type check
         run: uv run mypy src/
 
+      # La soglia (fail_under) sta in pyproject.toml. La tabella finisce
+      # anche nel riepilogo del run, senza aprire i log.
       - name: Tests
-        run: uv run pytest --tb=short
+        run: uv run pytest --tb=short --cov --cov-report=term --cov-report="markdown-append:$GITHUB_STEP_SUMMARY"
+
+      # I test non devono dipendere dalla macchina che li lancia: con un .env
+      # e variabili da produzione il risultato deve restare identico.
+      - name: Tests in a production-like environment
+        env:
+          APP_ENVIRONMENT: production
+          SERVER_TRUSTED_HOSTS: '["api.example.com"]'
+        run: |
+          printf 'KEYCLOAK_COOKIE_NAME=__Host-rt\nKEYCLOAK_COOKIE_SECURE=false\n' > .env
+          uv run pytest -q --tb=short -p no:cacheprovider
 
   docker:
     name: Build container image
@@ -77,10 +89,10 @@ jobs:
       - name: Build image
         run: docker build -f docker/Dockerfile -t fastapi-starter:ci .
 
-      # Smoke test senza servizi esterni: create_app() gira all'import di
-      # main.py, quindi questo esercita settings, logging, middleware e router.
+      # Smoke test senza servizi esterni: create_app() costruisce settings,
+      # logging, middleware e router, come fa uvicorn --factory all'avvio.
       # Database e Keycloak restano fuori — vengono toccati solo nel lifespan.
       - name: Smoke test
         run: |
           docker run --rm --entrypoint python fastapi-starter:ci \
-            -c "from fastapi_starter.main import app; assert app.routes; print(f'{len(app.routes)} routes registered')"
+            -c "from fastapi_starter.main import create_app; app = create_app(); assert app.routes; print(f'{len(app.routes)} routes registered')"

@@ -2,15 +2,17 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import uvicorn
 from fastapi import FastAPI
 
-from fastapi_starter.core.config import get_settings
+from fastapi_starter.core.config import Settings, get_settings
 from fastapi_starter.core.logging import configure_logging, get_logger
 from fastapi_starter.exception_handlers import register_exception_handlers
 from fastapi_starter.features.auth.router import auth_router
 from fastapi_starter.features.health.router import health_router
 from fastapi_starter.setup import (
     CleanupFn,
+    create_keycloak_http_client,
     init_auth_service,
     init_database,
     init_oauth_provider,
@@ -24,7 +26,7 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan handler for startup and shutdown events."""
-    settings = app.state.settings
+    settings: Settings = app.state.settings
     logger.info(
         "application_started",
         app_name=settings.app.name,
@@ -38,11 +40,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         db_manager = await init_database(app.state, settings.database)
         services.append(("database", db_manager.disconnect))
 
-        jwks_manager = await init_auth_service(app.state, settings.keycloak)
-        services.append(("jwks_manager", jwks_manager.close))
+        # One client for every call to Keycloak: signing keys and tokens.
+        # It is registered before the adapters that use it, so a failure
+        # while they start still closes it.
+        keycloak_http = create_keycloak_http_client(settings.keycloak)
+        services.append(("keycloak_http_client", keycloak_http.aclose))
 
-        keycloak_client = await init_oauth_provider(app.state, settings.keycloak)
-        services.append(("oauth_provider", keycloak_client.close))
+        await init_auth_service(app.state, settings.keycloak, keycloak_http)
+        await init_oauth_provider(app.state, settings.keycloak, keycloak_http)
     except Exception:
         await shutdown_services(services)
         raise
@@ -54,9 +59,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("application_stopped")
 
 
-def create_app() -> FastAPI:
-    """Create and configure the FastAPI application."""
-    settings = get_settings()
+def create_app(settings: Settings | None = None) -> FastAPI:
+    """Create and configure the FastAPI application.
+
+    uvicorn calls this when the server process starts (``--factory``).
+    Importing this module builds nothing and reads no configuration.
+
+    Args:
+        settings: Configuration for this app. When omitted, it is loaded
+            from the environment and ``.env``. Tests pass their own.
+    """
+    if settings is None:
+        settings = get_settings()
+
     configure_logging(
         environment=settings.app.environment,
         log_level=settings.app.log_level,
@@ -74,7 +89,7 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if settings.app.is_development else None,
     )
 
-    # Store settings in app.state so lifespan() can access them
+    # Store settings in app.state so lifespan() and dependencies can read them
     app.state.settings = settings
 
     register_middleware(app, settings.server)
@@ -96,15 +111,11 @@ def create_app() -> FastAPI:
     return app
 
 
-app = create_app()
-
-
 if __name__ == "__main__":
-    import uvicorn
-
     settings = get_settings()
     uvicorn.run(
-        "fastapi_starter.main:app",
+        "fastapi_starter.main:create_app",
+        factory=True,
         host=settings.server.host,
         port=settings.server.port,
         timeout_keep_alive=settings.server.timeout_keep_alive,

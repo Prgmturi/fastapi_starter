@@ -20,13 +20,17 @@ class KeycloakClient:
     - Token revocation (logout)
     """
 
-    def __init__(self, settings: KeycloakSettings) -> None:
+    def __init__(
+        self, settings: KeycloakSettings, http_client: httpx.AsyncClient
+    ) -> None:
+        """
+        Args:
+            settings: Keycloak realm and client credentials.
+            http_client: Client for the calls to Keycloak. The caller owns it
+                and closes it at shutdown (see lifespan in main.py).
+        """
         self._settings = settings
-        self._client = httpx.AsyncClient(timeout=settings.request_timeout)
-
-    async def close(self) -> None:
-        """Close the underlying HTTP client."""
-        await self._client.aclose()
+        self._client = http_client
 
     @property
     def token_url(self) -> str:

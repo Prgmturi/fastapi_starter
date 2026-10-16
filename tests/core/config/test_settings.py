@@ -23,9 +23,7 @@ class TestAppSettings:
 
     def test_default_values(self):
         """[HP] Defaults are development-friendly."""
-        settings = AppSettings(
-            _env_file=None,  # type: ignore[call-arg]
-        )
+        settings = AppSettings()
         assert settings.name == "fastapi_starter"
         assert settings.version == "0.1.0"
         assert settings.environment == "development"
@@ -33,26 +31,17 @@ class TestAppSettings:
 
     def test_is_development_true_in_dev(self):
         """[HP] environment='development' -> is_development=True."""
-        settings = AppSettings(
-            environment="development",
-            _env_file=None,  # type: ignore[call-arg]
-        )
+        settings = AppSettings(environment="development")
         assert settings.is_development is True
 
     def test_is_development_false_in_production(self):
         """[EC] environment='production' -> is_development=False."""
-        settings = AppSettings(
-            environment="production",
-            _env_file=None,  # type: ignore[call-arg]
-        )
+        settings = AppSettings(environment="production")
         assert settings.is_development is False
 
     def test_is_production_true_in_production(self):
         """[HP] environment='production' -> is_production=True."""
-        settings = AppSettings(
-            environment="production",
-            _env_file=None,  # type: ignore[call-arg]
-        )
+        settings = AppSettings(environment="production")
         assert settings.is_production is True
 
 
@@ -72,7 +61,6 @@ class TestDatabaseSettings:
             name="mydb",
             user="myuser",
             password="secret",
-            _env_file=None,  # type: ignore[call-arg]
         )
         assert settings.url == "postgresql+asyncpg://myuser:secret@db-host:5432/mydb"
 
@@ -89,7 +77,6 @@ class TestDatabaseSettings:
             name="mydb",
             user="myuser",
             password="super-secret-password",
-            _env_file=None,  # type: ignore[call-arg]
         )
         assert "super-secret-password" not in settings.url_safe
         assert "***" in settings.url_safe
@@ -97,9 +84,7 @@ class TestDatabaseSettings:
 
     def test_default_pool_settings(self):
         """[HP] Pool defaults are reasonable (pool_size=5, etc.)."""
-        settings = DatabaseSettings(
-            _env_file=None,  # type: ignore[call-arg]
-        )
+        settings = DatabaseSettings()
         assert settings.pool_size == 5
         assert settings.pool_max_overflow == 10
         assert settings.pool_timeout == 5
@@ -120,7 +105,6 @@ class TestKeycloakSettings:
             host="auth.example.com",
             port=443,
             realm="myrealm",
-            _env_file=None,  # type: ignore[call-arg]
         )
         assert settings.server_url == "https://auth.example.com:443"
 
@@ -131,7 +115,6 @@ class TestKeycloakSettings:
             host="localhost",
             port=8080,
             realm="test-realm",
-            _env_file=None,  # type: ignore[call-arg]
         )
         assert settings.token_url == (
             "http://localhost:8080/realms/test-realm/protocol/openid-connect/token"
@@ -144,7 +127,6 @@ class TestKeycloakSettings:
             host="localhost",
             port=8080,
             realm="test-realm",
-            _env_file=None,  # type: ignore[call-arg]
         )
         assert settings.auth_url == (
             "http://localhost:8080/realms/test-realm/protocol/openid-connect/auth"
@@ -157,7 +139,6 @@ class TestKeycloakSettings:
             host="localhost",
             port=8080,
             realm="test-realm",
-            _env_file=None,  # type: ignore[call-arg]
         )
         assert settings.certs_url == (
             "http://localhost:8080/realms/test-realm/protocol/openid-connect/certs"
@@ -173,24 +154,17 @@ class TestServerSettings:
 
     def test_default_trusted_hosts(self):
         """[HP] Default trusted hosts include localhost for development."""
-        settings = ServerSettings(
-            _env_file=None,  # type: ignore[call-arg]
-        )
+        settings = ServerSettings()
         assert "localhost" in settings.trusted_hosts
         assert "127.0.0.1" in settings.trusted_hosts
 
     def test_custom_trusted_hosts(self):
         """[HP] trusted_hosts can be overridden for production."""
-        settings = ServerSettings(
-            trusted_hosts=["myapp.example.com", "localhost"],
-            _env_file=None,  # type: ignore[call-arg]
-        )
+        settings = ServerSettings(trusted_hosts=["myapp.example.com", "localhost"])
         assert settings.trusted_hosts == ["myapp.example.com", "localhost"]
 
     def test_default_cors_origins(self):
         """[HP] CORS origins default to common local dev ports."""
-        settings = ServerSettings(
-            _env_file=None,  # type: ignore[call-arg]
-        )
+        settings = ServerSettings()
         assert "http://localhost:3000" in settings.cors_origins
         assert "http://localhost:5173" in settings.cors_origins
