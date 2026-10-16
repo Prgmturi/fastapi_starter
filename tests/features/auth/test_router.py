@@ -10,7 +10,11 @@ behaviour, and that the refresh token never leaks into the response body.
 
 from unittest.mock import AsyncMock
 
-from fastapi_starter.core.exceptions import ExternalServiceError, UnauthorizedError
+from fastapi_starter.core.exceptions import (
+    ExternalServiceError,
+    ServiceUnavailableError,
+    UnauthorizedError,
+)
 from tests.features.auth.conftest import TEST_COOKIE_NAME
 
 
@@ -311,3 +315,21 @@ class TestGetMe:
         response = await oauth_client.get("/auth/me")
 
         assert response.status_code == 401
+
+    async def test_auth_backend_down_returns_503(self, oauth_client, mock_auth_service):
+        """[EC] Keycloak unreachable for an uncached key -> 503, not 401.
+
+        WHY: a 401 makes the frontend send the user back to the login. A 503
+        says "retry later" and keeps the session.
+        """
+        mock_auth_service.validate_token.side_effect = ServiceUnavailableError("auth")
+
+        response = await oauth_client.get(
+            "/auth/me", headers={"Authorization": "Bearer some-token"}
+        )
+
+        assert response.status_code == 503
+        assert response.json() == {
+            "message": "Service temporarily unavailable",
+            "details": {"service": "auth"},
+        }

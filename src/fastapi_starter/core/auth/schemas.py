@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
+
+# Free text from the IdP that reaches logs and responses (email, names):
+# only control characters are refused.
+_NO_CONTROL_CHARS = r"^[^\x00-\x1f\x7f]+$"
 
 
 class TokenResponse(BaseModel):
@@ -75,20 +79,31 @@ class User(BaseModel):
         description="Username from the IdP (no whitespace, no control chars)",
         examples=["mario_rossi", "mario.rossi@example.com"],
     )
-    email: EmailStr | None = Field(
-        default=None, description="Email address (validated format)"
+    # Email and names follow the same rule as username: Keycloak decides
+    # what is valid, here only control characters are refused. EmailStr
+    # refused reserved domains such as .local, so mario@azienda.local could
+    # never log in. 320 = 64 + "@" + 255. For names 255 is Keycloak's own
+    # limit: the old 100 locked out users with longer names.
+    email: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=320,
+        pattern=_NO_CONTROL_CHARS,
+        description="Email address from the IdP (no control chars)",
     )
     email_verified: bool = Field(default=False, description="Email verified")
     first_name: str | None = Field(
         default=None,
         min_length=1,
-        max_length=100,
+        max_length=255,
+        pattern=_NO_CONTROL_CHARS,
         description="First name",
     )
     last_name: str | None = Field(
         default=None,
         min_length=1,
-        max_length=100,
+        max_length=255,
+        pattern=_NO_CONTROL_CHARS,
         description="Last name",
     )
     roles: list[RoleEnum] = Field(

@@ -74,3 +74,18 @@ class ExternalServiceError(AppExceptionError):
             status_code=status.HTTP_502_BAD_GATEWAY,
             details={"service": service},
         )
+
+
+class ServiceUnavailableError(AppExceptionError):
+    """A service the request needs is unreachable: retry later (503).
+
+    Unlike ExternalServiceError (502), the same request can succeed once
+    the service is back.
+    """
+
+    def __init__(self, service: str) -> None:
+        super().__init__(
+            message="Service temporarily unavailable",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            details={"service": service},
+        )

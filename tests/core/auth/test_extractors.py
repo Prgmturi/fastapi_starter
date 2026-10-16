@@ -92,9 +92,42 @@ class TestExtractUser:
         with pytest.raises(UnauthorizedError):
             extractor.extract_user(sample_claims)
 
-    def test_invalid_email_claim_raises_unauthorized(self, extractor, sample_claims):
-        """[EC] Un claim email malformato è 401, non 500."""
-        sample_claims["email"] = "non-una-email"
+    def test_reserved_domain_email_is_accepted(self, extractor, sample_claims):
+        """[HP] mario@azienda.local can log in.
+
+        WHY: measured on 16 October 2026 — EmailStr refused special-use
+        domains such as .local, so this claim gave a permanent 401.
+        """
+        sample_claims["email"] = "mario@azienda.local"
+
+        user = extractor.extract_user(sample_claims)
+
+        assert user.email == "mario@azienda.local"
+
+    def test_long_given_name_is_accepted(self, extractor, sample_claims):
+        """[HP] A given_name of 120 characters, accepted by Keycloak, logs in."""
+        sample_claims["given_name"] = "G" * 120
+
+        user = extractor.extract_user(sample_claims)
+
+        assert user.first_name == "G" * 120
+
+    def test_empty_strings_count_as_absent(self, extractor, sample_claims):
+        """[EC] email, given_name and family_name set to "" -> None, not 401."""
+        sample_claims.update(email="", given_name="", family_name="")
+
+        user = extractor.extract_user(sample_claims)
+
+        assert user.email is None
+        assert user.first_name is None
+        assert user.last_name is None
+
+    @pytest.mark.parametrize("claim", ["email", "given_name", "family_name"])
+    def test_control_characters_raise_unauthorized(
+        self, extractor, sample_claims, claim
+    ):
+        """[SEC] A newline in email or names -> 401, as for username."""
+        sample_claims[claim] = "x\nlevel=error"
 
         with pytest.raises(UnauthorizedError):
             extractor.extract_user(sample_claims)

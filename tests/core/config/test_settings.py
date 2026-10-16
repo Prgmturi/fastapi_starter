@@ -92,11 +92,27 @@ class TestDatabaseSettings:
 
 
 class TestKeycloakSettings:
-    """KeycloakSettings — URL construction for OIDC endpoints.
+    """KeycloakSettings — OIDC endpoint URLs and which tokens are accepted.
 
     WHY: Four computed URLs (server, token, auth, certs) must follow
     Keycloak's exact URL patterns. A wrong URL = auth completely broken.
     """
+
+    def test_allowed_clients_default_to_client_id(self):
+        """[HP] No list given -> only tokens issued to client_id are accepted."""
+        settings = KeycloakSettings(client_id="orders-api")
+
+        assert settings.allowed_clients == ["orders-api"]
+
+    def test_allowed_clients_read_as_json_list(self, monkeypatch):
+        """[HP] KEYCLOAK_ALLOWED_CLIENTS is a JSON list, like SERVER_CORS_ORIGINS."""
+        monkeypatch.setenv("KEYCLOAK_ALLOWED_CLIENTS", '["orders-api","web"]')
+
+        assert KeycloakSettings().allowed_clients == ["orders-api", "web"]
+
+    def test_audience_empty_by_default(self):
+        """[HP] Empty audience: the decoder does not check aud."""
+        assert KeycloakSettings().audience == ""
 
     def test_server_url_construction(self):
         """[HP] server_url = scheme://host:port."""
