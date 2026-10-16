@@ -12,8 +12,13 @@ import contextlib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
-from fastapi_starter.core.database.dependencies import get_db_manager, get_db_session
+from fastapi_starter.core.database.dependencies import (
+    DbSession,
+    get_db_manager,
+    get_db_session,
+)
 
 
 class TestGetDbManager:
@@ -110,3 +115,51 @@ class TestGetDbSession:
 
         with pytest.raises(RuntimeError, match="original error"):
             await gen.athrow(RuntimeError("original error"))
+
+
+class TestDbSessionInRequest:
+    """DbSession inside a real request — the commit decides the response.
+
+    WHY: by default FastAPI runs the code after ``yield`` once the response
+    has been sent. A commit that failed there could not change the status
+    code: the client would get 201 for data that was never saved.
+    """
+
+    @pytest.fixture
+    def session(self, mock_db_provider, mock_session):
+        """mock_session, handed out by the app's database provider."""
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_db_provider.session_factory = MagicMock(return_value=mock_session)
+        return mock_session
+
+    @pytest.fixture
+    def orders_app(self, app):
+        """The test app plus a route that writes through DbSession."""
+
+        @app.post("/orders", status_code=201)
+        async def create_order(session: DbSession) -> dict[str, int]:
+            return {"id": 42}
+
+        return app
+
+    async def test_successful_commit_returns_201(self, orders_app, client, session):
+        """[HP] Commit succeeds -> 201, one commit, no rollback."""
+        response = await client.post("/orders")
+
+        assert response.status_code == 201
+        session.commit.assert_awaited_once()
+        session.rollback.assert_not_awaited()
+
+    async def test_failed_commit_returns_500(self, orders_app, client, session):
+        """[EC] Commit fails -> 500 and rollback, never 201.
+
+        WHY: a 201 tells the client the data exists. After a failed commit
+        it does not.
+        """
+        session.commit.side_effect = SQLAlchemyError("commit failed")
+
+        response = await client.post("/orders")
+
+        assert response.status_code == 500
+        session.rollback.assert_awaited_once()
