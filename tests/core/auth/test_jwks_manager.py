@@ -8,6 +8,7 @@ key. They pin down the cache rules — when it fetches and what it raises —
 so a change to those rules shows up as a failing test.
 """
 
+import asyncio
 import json
 
 import httpx
@@ -18,6 +19,7 @@ from jwt.algorithms import RSAAlgorithm
 
 from fastapi_starter.core.auth.jwks_manager import JWKSManager
 from fastapi_starter.core.config.keycloak import KeycloakSettings
+from fastapi_starter.core.exceptions import ServiceUnavailableError
 from fastapi_starter.core.protocols import KeyProvider
 
 
@@ -25,16 +27,41 @@ class FakeCertsEndpoint:
     """Keycloak's certs endpoint: serves a key set and records each request."""
 
     def __init__(self, public_key: rsa.RSAPublicKey, kids: list[str]) -> None:
-        jwk = json.loads(RSAAlgorithm.to_jwk(public_key))
-        self.keys = [{**jwk, "kid": kid, "use": "sig", "alg": "RS256"} for kid in kids]
+        self._jwk = json.loads(RSAAlgorithm.to_jwk(public_key))
+        self.serve(kids)
         self.requests: list[httpx.Request] = []
         self.down = False
+        self.body: str | None = None
 
-    def __call__(self, request: httpx.Request) -> httpx.Response:
+    def serve(self, kids: list[str]) -> None:
+        """Publish these key IDs, as Keycloak does after a key rotation."""
+        self.keys = [
+            {**self._jwk, "kid": kid, "use": "sig", "alg": "RS256"} for kid in kids
+        ]
+
+    async def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        # Hand control to the other tasks, as a real network call does:
+        # that is when concurrent lookups pile up.
+        await asyncio.sleep(0)
         if self.down:
             raise httpx.ConnectError("connection refused", request=request)
+        if self.body is not None:
+            return httpx.Response(200, text=self.body)
         return httpx.Response(200, json={"keys": self.keys})
+
+
+class FakeClock:
+    """Monotonic clock that moves only when the test says so."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
 
 
 @pytest.fixture(scope="module")
@@ -45,7 +72,9 @@ def rsa_private_key() -> rsa.RSAPrivateKey:
 
 @pytest.fixture
 def keycloak_settings() -> KeycloakSettings:
-    return KeycloakSettings(realm="test-realm", jwks_cache_ttl=3600)
+    return KeycloakSettings(
+        realm="test-realm", jwks_cache_ttl=3600, jwks_min_refresh_interval=30
+    )
 
 
 @pytest.fixture
@@ -54,10 +83,15 @@ def certs(rsa_private_key) -> FakeCertsEndpoint:
 
 
 @pytest.fixture
-async def jwks_manager(keycloak_settings, certs):
+def clock() -> FakeClock:
+    return FakeClock()
+
+
+@pytest.fixture
+async def jwks_manager(keycloak_settings, certs, clock):
     """JWKSManager talking to the fake endpoint through an injected client."""
     async with httpx.AsyncClient(transport=httpx.MockTransport(certs)) as client:
-        yield JWKSManager(keycloak_settings, client)
+        yield JWKSManager(keycloak_settings, client, clock=clock)
 
 
 class TestRefreshKeys:
@@ -73,11 +107,13 @@ class TestRefreshKeys:
             keycloak_settings.certs_url
         ]
 
-    async def test_keycloak_unreachable_raises_runtime_error(self, jwks_manager, certs):
-        """[EC] Network error -> RuntimeError, no httpx exception leaks."""
+    async def test_keycloak_unreachable_raises_service_unavailable(
+        self, jwks_manager, certs
+    ):
+        """[EC] Network error -> ServiceUnavailableError (503), no httpx leak."""
         certs.down = True
 
-        with pytest.raises(RuntimeError, match="Failed to fetch JWKS"):
+        with pytest.raises(ServiceUnavailableError):
             await jwks_manager.refresh_keys()
 
 
@@ -93,28 +129,161 @@ class TestGetKey:
         assert second is first
         assert len(certs.requests) == 1
 
-    async def test_expired_cache_fetches_again(self, certs):
+    async def test_expired_cache_fetches_again(self, jwks_manager, certs, clock):
         """[EC] jwks_cache_ttl elapsed -> next lookup fetches fresh keys."""
-        settings = KeycloakSettings(realm="test-realm", jwks_cache_ttl=0)
-
-        async with httpx.AsyncClient(transport=httpx.MockTransport(certs)) as client:
-            manager = JWKSManager(settings, client)
-            await manager.get_key("key-1")
-            await manager.get_key("key-1")
+        await jwks_manager.get_key("key-1")
+        clock.advance(3601)
+        await jwks_manager.get_key("key-1")
 
         assert len(certs.requests) == 2
 
-    async def test_unknown_kid_fetches_once_more_then_raises(self, jwks_manager, certs):
-        """[EC] kid not in the key set -> one extra fetch, then ValueError.
+    async def test_unknown_kid_raises_without_refetching_at_once(
+        self, jwks_manager, certs
+    ):
+        """[EC] kid missing from keys fetched a moment ago -> ValueError, 1 fetch.
 
-        WHY: an unknown kid may mean Keycloak rotated its keys, so the
-        manager fetches again before giving up. NOTE: this happens for
-        every unknown kid, including those of forged tokens.
+        WHY: a refetch right away would not find it either. Before the
+        limit, every unknown kid — those of forged tokens too — cost a
+        second call to Keycloak.
         """
         with pytest.raises(ValueError, match="not found"):
             await jwks_manager.get_key("unknown-kid")
 
-        assert len(certs.requests) == 2  # initial fetch + retry
+        assert len(certs.requests) == 1
+
+    async def test_rotated_key_found_with_one_fetch(self, jwks_manager, certs, clock):
+        """[HP] Keycloak rotated its keys -> the new kid is fetched and found.
+
+        WHY: the limit on fetches must not block a real key rotation.
+        """
+        await jwks_manager.refresh_keys()
+        certs.serve(["key-2"])
+        clock.advance(31)
+
+        key = await jwks_manager.get_key("key-2")
+
+        assert key.key_id == "key-2"
+        assert len(certs.requests) == 2
+
+
+class TestFetchLimits:
+    """How often Keycloak is called: one fetch at a time, and at most one
+    every jwks_min_refresh_interval seconds.
+
+    WHY: measured on 16 October 2026 — 25 tokens with invented kids cost 25
+    calls to Keycloak, and so did 25 requests in flight as the cache expired.
+    """
+
+    async def test_invented_kids_fetch_at_most_once(self, jwks_manager, certs, clock):
+        """[EC] 25 tokens with invented kids, one after another -> 1 extra fetch."""
+        await jwks_manager.refresh_keys()
+        clock.advance(31)  # past the interval: one refetch is allowed
+
+        for i in range(25):
+            with pytest.raises(ValueError, match="not found"):
+                await jwks_manager.get_key(f"invented-{i}")
+
+        assert len(certs.requests) == 2  # startup + one refetch
+
+    async def test_concurrent_invented_kids_fetch_at_most_once(
+        self, jwks_manager, certs, clock
+    ):
+        """[EC] 25 tokens with invented kids at the same time -> 1 extra fetch."""
+        await jwks_manager.refresh_keys()
+        clock.advance(31)
+
+        results = await asyncio.gather(
+            *(jwks_manager.get_key(f"invented-{i}") for i in range(25)),
+            return_exceptions=True,
+        )
+
+        assert all(isinstance(result, ValueError) for result in results)
+        assert len(certs.requests) == 2  # startup + one refetch
+
+    async def test_concurrent_lookups_on_expired_cache_fetch_once(
+        self, jwks_manager, certs, clock
+    ):
+        """[EC] 25 concurrent lookups as the cache expires -> 1 fetch."""
+        await jwks_manager.refresh_keys()
+        clock.advance(3601)
+
+        keys = await asyncio.gather(*(jwks_manager.get_key("key-1") for _ in range(25)))
+
+        assert {key.key_id for key in keys} == {"key-1"}
+        assert len(certs.requests) == 2  # startup + one refresh
+
+
+class TestKeycloakDown:
+    """Keycloak unreachable — cached keys keep working, missing ones give 503.
+
+    WHY: measured on 16 October 2026 — with Keycloak down and the cache
+    expired, a valid token got 401 although its key was in the cache.
+    A Keycloak restart must not log every user out.
+    """
+
+    async def test_cached_key_served_when_refresh_fails(
+        self, jwks_manager, certs, clock
+    ):
+        """[EC] Cache expired, Keycloak down -> the cached key is returned."""
+        await jwks_manager.refresh_keys()
+        clock.advance(3601)
+        certs.down = True
+
+        key = await jwks_manager.get_key("key-1")
+
+        assert key.key_id == "key-1"
+
+    async def test_failed_fetch_retried_once_per_interval(
+        self, jwks_manager, certs, clock
+    ):
+        """[EC] While Keycloak is down, at most one attempt per interval.
+
+        WHY: otherwise every request would wait for a call bound to fail.
+        """
+        await jwks_manager.refresh_keys()
+        clock.advance(3601)
+        certs.down = True
+
+        for _ in range(10):
+            await jwks_manager.get_key("key-1")
+        clock.advance(31)
+        await jwks_manager.get_key("key-1")
+
+        assert len(certs.requests) == 3  # startup, first attempt, retry
+
+    async def test_body_that_is_not_a_key_set_counts_as_down(
+        self, jwks_manager, certs, clock
+    ):
+        """[EC] 200 with an HTML page (a proxy error) -> cached key served."""
+        await jwks_manager.refresh_keys()
+        clock.advance(3601)
+        certs.body = "<html>502 Bad Gateway</html>"
+
+        key = await jwks_manager.get_key("key-1")
+
+        assert key.key_id == "key-1"
+
+    async def test_uncached_kid_raises_service_unavailable(
+        self, jwks_manager, certs, clock
+    ):
+        """[EC] Keycloak down, kid not in the cache -> ServiceUnavailableError.
+
+        WHY: the key may exist (a rotation not seen yet), so "invalid
+        token" would be a guess. 503 tells the client to retry.
+        """
+        await jwks_manager.refresh_keys()
+        clock.advance(31)
+        certs.down = True
+
+        with pytest.raises(ServiceUnavailableError):
+            await jwks_manager.get_key("key-2")
+
+    async def test_no_keys_yet_raises_service_unavailable(self, jwks_manager, certs):
+        """[EC] Nothing fetched yet and Keycloak down -> ServiceUnavailableError."""
+        certs.down = True
+
+        with pytest.raises(ServiceUnavailableError):
+            await jwks_manager.get_key("key-1")
 
 
 class TestGetSigningKeyFromToken:

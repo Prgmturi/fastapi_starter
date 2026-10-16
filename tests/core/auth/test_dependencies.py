@@ -20,7 +20,7 @@ from fastapi_starter.core.auth.dependencies import (
     require_roles,
 )
 from fastapi_starter.core.auth.schemas import RoleEnum
-from fastapi_starter.core.exceptions import UnauthorizedError
+from fastapi_starter.core.exceptions import ServiceUnavailableError, UnauthorizedError
 
 
 class TestGetCurrentUser:
@@ -98,6 +98,22 @@ class TestGetOptionalUser:
         user = await get_optional_user(credentials, auth_service)
 
         assert user is None
+
+    async def test_backend_unavailable_propagates(self):
+        """[EC] Auth backend unreachable -> ServiceUnavailableError, not None.
+
+        WHY: None means "anonymous". An outage must not quietly turn a
+        logged-in user into a guest: the client gets 503 and retries.
+        """
+        credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials="valid-token",
+        )
+        auth_service = AsyncMock()
+        auth_service.validate_token.side_effect = ServiceUnavailableError("auth")
+
+        with pytest.raises(ServiceUnavailableError):
+            await get_optional_user(credentials, auth_service)
 
 
 class TestRequireRoles:

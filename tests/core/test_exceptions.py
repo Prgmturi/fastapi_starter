@@ -14,6 +14,7 @@ from fastapi_starter.core.exceptions import (
     ExternalServiceError,
     ForbiddenError,
     NotFoundError,
+    ServiceUnavailableError,
     UnauthorizedError,
     ValidationError,
 )
@@ -172,6 +173,32 @@ class TestExternalServiceError:
         assert exc.details == {"service": "Keycloak"}
 
 
+class TestServiceUnavailableError:
+    """ServiceUnavailableError — 503, the request can be retried.
+
+    WHY: with Keycloak down a valid token cannot always be checked. A 401
+    would send the user back to the login; 503 says "retry later".
+    """
+
+    def test_status_code_is_503(self):
+        """[HP] status_code == 503."""
+        exc = ServiceUnavailableError("auth")
+
+        assert exc.status_code == 503
+
+    def test_message_is_generic(self):
+        """[HP] Same message for every service: no internal names."""
+        exc = ServiceUnavailableError("auth")
+
+        assert exc.message == "Service temporarily unavailable"
+
+    def test_details_include_service(self):
+        """[HP] details['service'] == the label passed in."""
+        exc = ServiceUnavailableError("auth")
+
+        assert exc.details == {"service": "auth"}
+
+
 class TestExceptionHierarchy:
     """All exceptions inherit from AppExceptionError.
 
@@ -182,7 +209,8 @@ class TestExceptionHierarchy:
 
     def test_all_subclasses_inherit_from_app_exception_error(self):
         """[CT] NotFound, Conflict, Validation, Unauthorized, Forbidden,
-        ExternalService are all subclasses of AppExceptionError."""
+        ExternalService, ServiceUnavailable are all subclasses of
+        AppExceptionError."""
         subclasses = [
             NotFoundError,
             ConflictError,
@@ -190,6 +218,7 @@ class TestExceptionHierarchy:
             UnauthorizedError,
             ForbiddenError,
             ExternalServiceError,
+            ServiceUnavailableError,
         ]
 
         for cls in subclasses:

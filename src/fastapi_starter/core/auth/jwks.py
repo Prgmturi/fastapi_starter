@@ -4,7 +4,7 @@ from typing import Any
 import jwt
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 
-from fastapi_starter.core.exceptions import UnauthorizedError
+from fastapi_starter.core.exceptions import AppExceptionError, UnauthorizedError
 from fastapi_starter.core.logging import get_logger
 from fastapi_starter.core.protocols import KeyProvider
 
@@ -119,6 +119,12 @@ class JWKSTokenDecoder:
             # it goes to the log, the response says only "Invalid token".
             logger.warning("token_validation_failed", error=str(e))
             raise UnauthorizedError("Invalid token") from e
+
+        except AppExceptionError:
+            # Raised on purpose by the key provider, such as a 503 when
+            # Keycloak is unreachable. The catch-all below would turn it
+            # into a 401 and send the user back to the login.
+            raise
 
         except Exception as e:
             logger.error("unexpected_decode_error", error=str(e), exc_info=True)

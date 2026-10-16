@@ -105,7 +105,7 @@ POST /auth/logout   → revokes refresh token, clears cookie
 GET  /auth/me       → decodes bearer JWT via JWKS, returns User
 ```
 
-JWT validation uses `JWKSManager`, which caches Keycloak's public keys with a configurable TTL and retries on key rotation automatically.
+JWT validation uses `JWKSManager`, which caches Keycloak's public keys (`KEYCLOAK_JWKS_CACHE_TTL`) and fetches them again when a token names an unknown key, as after a key rotation. It calls Keycloak one request at a time and at most once every `KEYCLOAK_JWKS_MIN_REFRESH_INTERVAL` seconds (default 30). If Keycloak is unreachable, the keys already in the cache keep working; a token whose key is not cached gets 503, so the client retries instead of logging the user out.
 
 The API accepts only access tokens (`typ: Bearer`) issued to `KEYCLOAK_CLIENT_ID` or to a client listed in `KEYCLOAK_ALLOWED_CLIENTS` (`azp`). ID tokens, refresh tokens and the tokens of other clients in the realm get 401, even though Keycloak signs them with the same keys. Up to 30 seconds of clock difference with Keycloak are tolerated.
 

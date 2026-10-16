@@ -54,6 +54,14 @@ class KeycloakSettings(BaseSettings):
         default=3600,
         description="JWKS cache expiration in seconds",
     )
+    jwks_min_refresh_interval: int = Field(
+        default=30,
+        description=(
+            "Minimum seconds between two fetches of the signing keys: limits "
+            "the calls caused by unknown kids and by retries while Keycloak "
+            "is down."
+        ),
+    )
     request_timeout: int = Field(
         default=30,
         description="Request timeout to fetch fresh keys from Keycloak",

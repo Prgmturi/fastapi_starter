@@ -22,7 +22,7 @@ from jwt.utils import base64url_encode
 
 from fastapi_starter.core.auth.jwks import JWKSTokenDecoder
 from fastapi_starter.core.auth.protocols import TokenDecoder
-from fastapi_starter.core.exceptions import UnauthorizedError
+from fastapi_starter.core.exceptions import ServiceUnavailableError, UnauthorizedError
 from fastapi_starter.core.protocols import HealthCheckable
 
 ISSUER = "http://localhost:8080/realms/test-realm"
@@ -185,17 +185,22 @@ class TestDecode:
         with pytest.raises(UnauthorizedError, match="^Invalid token$"):
             await jwks_decoder.decode("some-token")
 
-    async def test_key_provider_runtime_error_raises_unauthorized(
+    async def test_key_provider_unavailable_propagates(
         self,
         jwks_decoder,
         mock_key_provider,
     ):
-        """[EC] KeyProvider raises RuntimeError (fetch failed) -> UnauthorizedError."""
-        mock_key_provider.get_signing_key_from_token.side_effect = RuntimeError(
-            "JWKS endpoint unreachable"
+        """[EC] KeyProvider cannot reach Keycloak -> ServiceUnavailableError (503).
+
+        WHY: a 401 tells the client its token is bad and it must log in
+        again. With Keycloak down the token may be fine: 503 says "retry".
+        Until phase 3 this case gave 401 ("Authentication failed").
+        """
+        mock_key_provider.get_signing_key_from_token.side_effect = (
+            ServiceUnavailableError("auth")
         )
 
-        with pytest.raises(UnauthorizedError, match="Authentication failed"):
+        with pytest.raises(ServiceUnavailableError):
             await jwks_decoder.decode("some-token")
 
     async def test_unexpected_exception_raises_unauthorized(
