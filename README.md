@@ -162,6 +162,26 @@ async def stats(user: AdminUser): ...
 async def delete_user(user: Annotated[User, Depends(require_roles([RoleEnum.SUPERADMIN]))]): ...
 ```
 
+## Errors
+
+Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem document, sent as `application/problem+json`:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "Product with id '3' not found",
+  "resource": "Product",
+  "identifier": 3
+}
+```
+
+- `status`, `title` and `detail` are always there. `title` is the standard phrase of the status code; `detail` explains what went wrong in this request.
+- An invalid request (422) adds `errors`, one entry per invalid field: `{"loc": ["query", "limit"], "msg": "Input should be a valid integer, …", "type": "int_parsing"}`. The rejected value is not sent back.
+- To return an error from your code, raise a subclass of `AppExceptionError` from `core/exceptions.py` (`NotFoundError`, `ConflictError`, `ForbiddenError`, …). Its `details` become extra members, like `resource` and `identifier` above.
+- OpenAPI documents this format as the `default` response of every route.
+
 ## Running tests
 
 ```bash

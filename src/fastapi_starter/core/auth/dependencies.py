@@ -28,14 +28,10 @@ async def get_current_user(
     Dependency that extracts and validates the current user.
 
     Raises:
-        HTTPException 401: If no token or invalid token
+        UnauthorizedError: If no token or invalid token (401)
     """
     if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise UnauthorizedError("Not authenticated")
 
     user = await auth_service.validate_token(credentials.credentials)
     return user

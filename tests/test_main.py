@@ -62,6 +62,24 @@ class TestCreateApp:
         assert app.redoc_url == "/redoc"
         assert app.openapi_url == "/openapi.json"
 
+    def test_openapi_documents_errors_as_problem_details(self, settings):
+        """[HP] Every operation documents its errors as application/problem+json.
+
+        WHY: a client generated from the schema must expect what the server
+        sends. FastAPI's own 422 schema described the old {"detail": [...]}.
+        """
+        schema = create_app(settings).openapi()
+
+        operations = [op for path in schema["paths"].values() for op in path.values()]
+        assert operations
+        for operation in operations:
+            responses = operation["responses"]
+            assert list(responses["default"]["content"]) == ["application/problem+json"]
+            assert "422" not in responses
+        problem = responses["default"]["content"]["application/problem+json"]
+        assert set(problem["schema"]["required"]) == {"title", "status", "detail"}
+        assert "HTTPValidationError" not in schema["components"]["schemas"]
+
     def test_docs_disabled_in_production(self):
         app = create_app(Settings(app=AppSettings(environment="production")))
 

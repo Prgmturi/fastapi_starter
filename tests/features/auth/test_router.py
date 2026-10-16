@@ -329,7 +329,11 @@ class TestGetMe:
         )
 
         assert response.status_code == 503
+        assert response.headers["content-type"] == "application/problem+json"
         assert response.json() == {
-            "message": "Service temporarily unavailable",
-            "details": {"service": "auth"},
+            "type": "about:blank",
+            "title": "Service Unavailable",
+            "status": 503,
+            "detail": "Service temporarily unavailable",
+            "service": "auth",
         }

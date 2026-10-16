@@ -41,13 +41,19 @@ class TestGetCurrentUser:
         auth_service.validate_token.assert_called_once_with("valid-token")
 
     async def test_missing_credentials_raises_401(self):
-        """[EC] No token -> HTTPException 401."""
+        """[EC] No token -> UnauthorizedError, like an invalid token.
+
+        WHY: both 401s go through the same handler, so they have the same
+        body and the same WWW-Authenticate header.
+        """
         auth_service = AsyncMock()
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(UnauthorizedError) as exc_info:
             await get_current_user(None, auth_service)
 
         assert exc_info.value.status_code == 401
+        assert exc_info.value.message == "Not authenticated"
+        assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
 
     async def test_invalid_token_raises_401(self):
         """[EC] Invalid token -> UnauthorizedError propagates."""
