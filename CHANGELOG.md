@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.0](https://github.com/Prgmturi/fastapi_starter/compare/v0.2.0...v0.3.0) (2026-10-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* fastapi_starter.main no longer exposes `app`. Start the server with `uvicorn fastapi_starter.main:create_app --factory`.
+
+### Bug Fixes
+
+* prevent lost writes, reject foreign tokens, survive Keycloak outages ([#34](https://github.com/Prgmturi/fastapi_starter/issues/34)) ([fc81e6b](https://github.com/Prgmturi/fastapi_starter/commit/fc81e6b008853d7ef8c17c8490c558c02680a206))
+
+
+### Code Refactoring
+
+* build the app in create_app(settings) and make tests hermetic ([#32](https://github.com/Prgmturi/fastapi_starter/issues/32)) ([c50cd26](https://github.com/Prgmturi/fastapi_starter/commit/c50cd268a90b9a4c6b7eee78cee1523cc928c30a))
+
 ## [0.2.0](https://github.com/Prgmturi/fastapi_starter/compare/v0.1.0...v0.2.0) (2026-10-09)
 
 
