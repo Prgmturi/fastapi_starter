@@ -109,7 +109,11 @@ class TestInitAuthService:
         mock_auth_service,
         http_client,
     ):
-        """[HP] Keys fetched through the given client, service stored in state."""
+        """[HP] Keys fetched through the given client, service stored in state.
+
+        With default settings the decoder accepts only client_id and does
+        not check aud.
+        """
         mock_jwks = AsyncMock()
         mock_jwks.refresh_keys = AsyncMock()
         mock_jwks_manager.return_value = mock_jwks
@@ -119,8 +123,39 @@ class TestInitAuthService:
         await init_auth_service(state, settings, http_client)
 
         mock_jwks_manager.assert_called_once_with(settings, http_client)
+        mock_decoder.assert_called_once_with(
+            key_provider=mock_jwks,
+            issuer="http://localhost:8080/realms/fastapi-starter",
+            allowed_clients=["fastapi-backend"],
+            audience=None,
+        )
         mock_jwks.refresh_keys.assert_called_once()
         assert state.auth_service is mock_auth_service.return_value
+
+    @patch("fastapi_starter.setup.AuthService")
+    @patch("fastapi_starter.setup.KeycloakClaimExtractor")
+    @patch("fastapi_starter.setup.JWKSTokenDecoder")
+    @patch("fastapi_starter.setup.JWKSManager")
+    async def test_token_policy_from_settings_reaches_decoder(
+        self,
+        mock_jwks_manager,
+        mock_decoder,
+        mock_extractor,
+        mock_auth_service,
+        http_client,
+    ):
+        """[HP] KEYCLOAK_ALLOWED_CLIENTS and KEYCLOAK_AUDIENCE reach the decoder."""
+        mock_jwks_manager.return_value = AsyncMock()
+
+        settings = KeycloakSettings(
+            allowed_clients=["fastapi-backend", "web-frontend"],
+            audience="fastapi-backend",
+        )
+        await init_auth_service(State(), settings, http_client)
+
+        _, kwargs = mock_decoder.call_args
+        assert kwargs["allowed_clients"] == ["fastapi-backend", "web-frontend"]
+        assert kwargs["audience"] == "fastapi-backend"
 
     @patch("fastapi_starter.setup.AuthService")
     @patch("fastapi_starter.setup.KeycloakClaimExtractor")

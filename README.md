@@ -90,6 +90,10 @@ Open http://localhost:8000/docs.
 4. Copy the client secret → `.env` → `KEYCLOAK_CLIENT_SECRET`
 5. Create roles: `superadmin`, `admin`, `collaborator`, `user`
 6. Create a test user and assign a role
+7. Optional — to have the API check `aud`: in the client's *Client scopes*
+   tab open `fastapi-backend-dedicated` and add a mapper of type *Audience*,
+   with *Included Client Audience* `fastapi-backend` and *Add to access token*
+   on. Then set `KEYCLOAK_AUDIENCE=fastapi-backend` in `.env`.
 
 ## Authentication flow
 
@@ -102,6 +106,8 @@ GET  /auth/me       → decodes bearer JWT via JWKS, returns User
 ```
 
 JWT validation uses `JWKSManager`, which caches Keycloak's public keys with a configurable TTL and retries on key rotation automatically.
+
+The API accepts only access tokens (`typ: Bearer`) issued to `KEYCLOAK_CLIENT_ID` or to a client listed in `KEYCLOAK_ALLOWED_CLIENTS` (`azp`). ID tokens, refresh tokens and the tokens of other clients in the realm get 401, even though Keycloak signs them with the same keys. Up to 30 seconds of clock difference with Keycloak are tolerated.
 
 ## Adding a feature
 

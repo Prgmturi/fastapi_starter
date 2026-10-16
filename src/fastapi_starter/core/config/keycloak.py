@@ -36,6 +36,20 @@ class KeycloakSettings(BaseSettings):
         default="",
         description="Client secret (confidential client)",
     )
+    allowed_clients: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Clients whose access tokens the API accepts (azp claim). "
+            "Empty: only client_id."
+        ),
+    )
+    audience: str = Field(
+        default="",
+        description=(
+            "Expected aud claim. Empty: aud is not checked. "
+            "Needs an audience mapper on the Keycloak client."
+        ),
+    )
     jwks_cache_ttl: int = Field(
         default=3600,
         description="JWKS cache expiration in seconds",
@@ -75,6 +89,14 @@ class KeycloakSettings(BaseSettings):
                 raise ValueError("__Host- prefix requires cookie_path='/'")
             if not self.cookie_secure:
                 raise ValueError("__Host- prefix requires cookie_secure=True")
+        return self
+
+    @model_validator(mode="after")
+    def default_allowed_clients_to_client_id(self) -> "KeycloakSettings":
+        # Without an explicit list the API accepts only the tokens issued to
+        # itself. The default depends on client_id, so it is filled in here.
+        if not self.allowed_clients:
+            self.allowed_clients = [self.client_id]
         return self
 
     @computed_field  # type: ignore[prop-decorator]

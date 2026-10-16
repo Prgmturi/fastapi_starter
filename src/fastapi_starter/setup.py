@@ -62,7 +62,12 @@ async def init_auth_service(
     jwks_manager = JWKSManager(settings, http_client)
     issuer = f"{settings.server_url}/realms/{settings.realm}"
 
-    decoder = JWKSTokenDecoder(key_provider=jwks_manager, issuer=issuer)
+    decoder = JWKSTokenDecoder(
+        key_provider=jwks_manager,
+        issuer=issuer,
+        allowed_clients=settings.allowed_clients,
+        audience=settings.audience or None,
+    )
     extractor = KeycloakClaimExtractor(settings.client_id)
     # JWKSTokenDecoder implements both TokenDecoder and HealthCheckable
     # (health_check delegates to the underlying JWKSManager)
@@ -76,7 +81,12 @@ async def init_auth_service(
         logger.exception("auth_service_init_failed")
         raise
 
-    logger.info("auth_service_ready", issuer=issuer)
+    logger.info(
+        "auth_service_ready",
+        issuer=issuer,
+        allowed_clients=settings.allowed_clients,
+        audience=settings.audience or None,
+    )
     app_state.auth_service = auth_service
 
 
