@@ -16,7 +16,7 @@ A backend template built with FastAPI to learn and apply real architectural patt
 | **Database** | Async PostgreSQL with SQLAlchemy 2.0. Connection pooling, session lifecycle, base repository pattern. |
 | **Config** | Pydantic Settings, layered by domain (`AppSettings`, `DatabaseSettings`, etc.), loaded from `.env`. |
 | **Logging** | structlog. JSON in production with service metadata, colorized in development. Request IDs on every log line. |
-| **Errors** | Domain exceptions (`NotFoundError`, `UnauthorizedError`, ...) with global handlers. No library exceptions leak to the client. |
+| **Errors** | One format for every error: RFC 9457 problem details (`application/problem+json`). Domain exceptions (`NotFoundError`, `UnauthorizedError`, ...) with global handlers; no internal details reach the client. |
 | **Testing** | Fully async, no real database or auth server needed. Independent of the local `.env`. CI fails below a coverage threshold. |
 
 ## Architecture
@@ -24,7 +24,7 @@ A backend template built with FastAPI to learn and apply real architectural patt
 The project is split into two layers that don't bleed into each other:
 
 ```
-core/       ← infrastructure: auth, database, config, logging, exceptions
+core/       ← infrastructure: auth, database, config, logging, errors
 features/   ← business logic: your endpoints go here
 ```
 
@@ -34,13 +34,17 @@ features/   ← business logic: your endpoints go here
 src/fastapi_starter/
 ├── main.py                  # App factory + lifespan
 ├── setup.py                 # Composition root — the only place that knows everything
+├── exception_handlers.py    # Exceptions → RFC 9457 error responses
 ├── core/
 │   ├── auth/                # JWT validation, JWKS, Keycloak claim extraction
 │   ├── config/              # Settings by domain, loaded from .env
 │   ├── database/            # Async engine, session factory, base repository
 │   ├── logging/             # structlog config + request logging middleware
+│   ├── error_middleware.py  # Unexpected exceptions → 500, inside the middleware stack
 │   ├── exceptions.py        # Domain exception hierarchy
-│   └── protocols.py         # Cross-cutting contracts
+│   ├── problem_details.py   # RFC 9457 error body, also declared in OpenAPI
+│   ├── protocols.py         # Cross-cutting contracts
+│   └── security.py          # Security headers middleware
 └── features/
     ├── auth/                # Login, token exchange, refresh, logout, /me
     └── health/              # /health/live and /health/ready
@@ -233,7 +237,7 @@ SERVER_CORS_ORIGINS=["http://localhost:3000"]
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [SQLAlchemy](https://docs.sqlalchemy.org/en/20/) 2.0 (async)
 - [Alembic](https://alembic.sqlalchemy.org/)
-- [Keycloak](https://www.keycloak.org/) via [python-keycloak](https://python-keycloak.readthedocs.io/)
+- [Keycloak](https://www.keycloak.org/), reached with [httpx](https://www.python-httpx.org/) and [PyJWT](https://pyjwt.readthedocs.io/)
 - [structlog](https://www.structlog.org/)
 - [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
 - [uv](https://docs.astral.sh/uv/)
