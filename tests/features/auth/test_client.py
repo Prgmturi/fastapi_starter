@@ -30,7 +30,6 @@ def keycloak_settings() -> KeycloakSettings:
         realm="test-realm",
         client_id="test-client",
         client_secret="test-secret",
-        _env_file=None,  # type: ignore[call-arg]
     )
 
 
@@ -41,9 +40,7 @@ def mock_http_client() -> AsyncMock:
 
 @pytest.fixture
 def keycloak_client(keycloak_settings, mock_http_client) -> KeycloakClient:
-    client = KeycloakClient(keycloak_settings)
-    client._client = mock_http_client
-    return client
+    return KeycloakClient(keycloak_settings, mock_http_client)
 
 
 def _mock_response(

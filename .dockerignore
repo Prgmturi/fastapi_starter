@@ -1,9 +1,16 @@
 # =============================================================================
 # Docker build context
 # =============================================================================
-# Tutto quello che elencato qui non viene inviato al daemon Docker.
-# Senza questo file il contesto è ~265 MB (.venv 201M, .mypy_cache 59M):
-# ogni build copia l'intero virtualenv dell'host per poi ignorarlo.
+# Tutto ciò che è elencato qui resta fuori dal contesto di build.
+#
+# Con BuildKit (il builder predefinito) il client invia solo i percorsi che
+# le istruzioni COPY usano: .venv e le cache alla radice non partono comunque.
+# Questo file decide cosa resta fuori DENTRO quei percorsi (per esempio le
+# __pycache__ sotto src/) e ferma i segreti anche se un giorno qualcuno
+# scrive COPY . .
+#
+# I pattern partono dalla radice del contesto: "__pycache__/" esclude solo
+# ./__pycache__. Per escludere a qualsiasi profondità serve "**/".
 #
 # ATTENZIONE: README.md, pyproject.toml, uv.lock, src/, alembic/ e alembic.ini
 # servono alla build — non aggiungerli qui.
@@ -12,8 +19,8 @@
 # Virtualenv e artefatti Python
 .venv/
 venv/
-__pycache__/
-*.py[oc]
+**/__pycache__/
+**/*.py[oc]
 build/
 dist/
 wheels/
@@ -33,9 +40,9 @@ htmlcov/
 .pre-commit-config.yaml
 
 # Segreti — non devono mai entrare nel contesto di build
-.env
-.env.*
-!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 
 # Test e documentazione: non fanno parte dell'immagine di runtime
 tests/
@@ -49,4 +56,4 @@ infra/
 .idea/
 .vscode/
 .claude/
-.DS_Store
+**/.DS_Store

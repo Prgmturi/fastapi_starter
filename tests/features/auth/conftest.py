@@ -20,17 +20,17 @@ TEST_COOKIE_NAME = "rt"
 
 @pytest.fixture
 def test_keycloak_settings() -> KeycloakSettings:
-    """Deterministic KeycloakSettings for tests.
+    """KeycloakSettings with a refresh cookie that works over plain http.
 
-    Overrides get_keycloak_settings so tests are independent of the local .env.
-    cookie_name='rt' (no __Host- prefix) because cookie_secure=False.
+    The test client talks http, and httpx (like browsers) never sends a
+    Secure cookie over http. So cookie_secure=False, and cookie_name='rt'
+    because the __Host- prefix requires Secure.
     """
     return KeycloakSettings(
         cookie_name=TEST_COOKIE_NAME,
         cookie_secure=False,
         cookie_samesite="lax",
         cookie_path="/",
-        _env_file=None,  # type: ignore[call-arg]
     )
 
 

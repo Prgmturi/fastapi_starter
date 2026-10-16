@@ -1,6 +1,8 @@
-Questo file esiste solo perché git non traccia le directory vuote.
+Questo file esiste solo perché git non traccia le directory vuote:
+così alembic/versions/ c'è anche in un clone pulito.
 
-Senza, alembic/versions/ non arriva in un clone pulito e il primo
-"alembic revision" fallisce con "Path doesn't exist".
+Serve davvero. pyproject.toml ammette Alembic dalla 1.17.2, e con la 1.17
+il primo "alembic revision" fallisce con FileNotFoundError se la cartella
+manca. Dalla 1.18 Alembic la crea da solo.
 
 Puoi cancellarlo appena la prima migrazione è committata.

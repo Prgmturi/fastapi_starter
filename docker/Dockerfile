@@ -103,9 +103,12 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 
 # ENTRYPOINT fissa il comando base — non sostituibile a runtime.
 # CMD fornisce gli argomenti di default — sovrascrivibili.
-# Pattern: docker run myimage --workers 4
-#   → uvicorn fastapi_starter.main:app --workers 4
+# --factory: uvicorn chiama create_app() all'avvio del processo. Le settings
+#   si leggono lì, non come effetto collaterale dell'import di main.py.
+# Pattern: docker run myimage --host 0.0.0.0 --port 8000 --workers 4
+#   → uvicorn fastapi_starter.main:create_app --factory --host 0.0.0.0 ...
+#   Il CMD si sostituisce per intero: host e porta vanno ripetuti.
 # In produzione: workers va gestito da fuori (env var o compose),
 # non hardcoded qui — ogni progetto derivato dallo starter può avere esigenze diverse.
-ENTRYPOINT ["uvicorn", "fastapi_starter.main:app"]
+ENTRYPOINT ["uvicorn", "fastapi_starter.main:create_app", "--factory"]
 CMD ["--host", "0.0.0.0", "--port", "8000"]

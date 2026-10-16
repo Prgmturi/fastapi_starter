@@ -11,11 +11,26 @@ failures properly clean up already-initialized resources.
 
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from starlette.datastructures import State
 
 from fastapi_starter.core.config import DatabaseSettings, KeycloakSettings
-from fastapi_starter.setup import init_auth_service, init_database, shutdown_services
+from fastapi_starter.features.auth.client import KeycloakClient
+from fastapi_starter.setup import (
+    create_keycloak_http_client,
+    init_auth_service,
+    init_database,
+    init_oauth_provider,
+    shutdown_services,
+)
+
+
+@pytest.fixture
+async def http_client():
+    """Real client, never used for requests: only passed around and inspected."""
+    async with httpx.AsyncClient() as client:
+        yield client
 
 
 class TestInitDatabase:
@@ -64,6 +79,17 @@ class TestInitDatabase:
         mock_manager.disconnect.assert_called_once()
 
 
+class TestCreateKeycloakHttpClient:
+    """create_keycloak_http_client() — the client shared by Keycloak adapters."""
+
+    async def test_uses_request_timeout_from_settings(self):
+        """[HP] Timeout comes from KEYCLOAK_REQUEST_TIMEOUT."""
+        settings = KeycloakSettings(request_timeout=7)
+
+        async with create_keycloak_http_client(settings) as client:
+            assert client.timeout == httpx.Timeout(7)
+
+
 class TestInitAuthService:
     """init_auth_service() — auth service initialization.
 
@@ -81,43 +107,61 @@ class TestInitAuthService:
         mock_decoder,
         mock_extractor,
         mock_auth_service,
+        http_client,
     ):
-        """[HP] AuthService stored in app_state.auth_service."""
+        """[HP] Keys fetched through the given client, service stored in state."""
         mock_jwks = AsyncMock()
         mock_jwks.refresh_keys = AsyncMock()
         mock_jwks_manager.return_value = mock_jwks
 
         state = State()
         settings = KeycloakSettings()
-        result = await init_auth_service(state, settings)
+        await init_auth_service(state, settings, http_client)
 
+        mock_jwks_manager.assert_called_once_with(settings, http_client)
         mock_jwks.refresh_keys.assert_called_once()
-        assert hasattr(state, "auth_service")
-        assert result is mock_jwks
+        assert state.auth_service is mock_auth_service.return_value
 
     @patch("fastapi_starter.setup.AuthService")
     @patch("fastapi_starter.setup.KeycloakClaimExtractor")
     @patch("fastapi_starter.setup.JWKSTokenDecoder")
     @patch("fastapi_starter.setup.JWKSManager")
-    async def test_jwks_refresh_failure_closes_manager_and_raises(
+    async def test_jwks_refresh_failure_raises_and_leaves_client_open(
         self,
         mock_jwks_manager,
         mock_decoder,
         mock_extractor,
         mock_auth_service,
+        http_client,
     ):
-        """[EC] refresh_keys fails -> jwks_manager.close() called, raises."""
+        """[EC] refresh_keys fails -> raises, no service in state, client open.
+
+        WHY: the client belongs to the lifespan, which closes it. An adapter
+        that closed it would break the other adapters sharing it.
+        """
         mock_jwks = AsyncMock()
         mock_jwks.refresh_keys = AsyncMock(side_effect=RuntimeError("JWKS unreachable"))
-        mock_jwks.close = AsyncMock()
         mock_jwks_manager.return_value = mock_jwks
 
         state = State()
         settings = KeycloakSettings()
         with pytest.raises(RuntimeError, match="JWKS unreachable"):
-            await init_auth_service(state, settings)
+            await init_auth_service(state, settings, http_client)
 
-        mock_jwks.close.assert_called_once()
+        assert not hasattr(state, "auth_service")
+        assert not http_client.is_closed
+
+
+class TestInitOAuthProvider:
+    """init_oauth_provider() — OAuth provider for the token endpoints."""
+
+    async def test_stores_keycloak_client_in_state(self, http_client):
+        """[HP] app_state.oauth_provider is a KeycloakClient."""
+        state = State()
+
+        await init_oauth_provider(state, KeycloakSettings(), http_client)
+
+        assert isinstance(state.oauth_provider, KeycloakClient)
 
 
 class TestShutdownServices:

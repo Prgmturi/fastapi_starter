@@ -1,15 +1,21 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from fastapi_starter.core.auth import TokenValidator, get_auth_service
-from fastapi_starter.core.config import Settings, get_settings
+from fastapi_starter.core.config import AppSettings
 from fastapi_starter.core.database.dependencies import get_db_manager
 from fastapi_starter.core.protocols import HealthCheckable
 
 health_router = APIRouter(prefix="/health", tags=["health"])
+
+
+def get_app_settings(request: Request) -> AppSettings:
+    """Get AppSettings from app state (the ones create_app received)."""
+    settings: AppSettings = request.app.state.settings.app
+    return settings
 
 
 class HealthResponse(BaseModel):
@@ -35,13 +41,13 @@ class ReadinessResponse(BaseModel):
     description="Check if the application is running.",
 )
 async def liveness(
-    settings: Annotated[Settings, Depends(get_settings)],
+    settings: Annotated[AppSettings, Depends(get_app_settings)],
 ) -> HealthResponse:
     """Liveness probe - returns OK if the application is running."""
     return HealthResponse(
         status="healthy",
-        version=settings.app.version,
-        environment=settings.app.environment,
+        version=settings.version,
+        environment=settings.environment,
     )
 
 

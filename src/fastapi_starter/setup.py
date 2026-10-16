@@ -3,6 +3,7 @@
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.datastructures import State
@@ -46,11 +47,19 @@ async def init_database(
     return db_manager
 
 
+def create_keycloak_http_client(settings: KeycloakSettings) -> httpx.AsyncClient:
+    """HTTP client shared by every Keycloak adapter: one connection pool.
+
+    The adapters only use it. Whoever creates it closes it — the lifespan.
+    """
+    return httpx.AsyncClient(timeout=settings.request_timeout)
+
+
 async def init_auth_service(
-    app_state: State, settings: KeycloakSettings
-) -> JWKSManager:
+    app_state: State, settings: KeycloakSettings, http_client: httpx.AsyncClient
+) -> None:
     """Wire auth adapters to ports, pre-fetch JWKS keys, register in app state."""
-    jwks_manager = JWKSManager(settings)
+    jwks_manager = JWKSManager(settings, http_client)
     issuer = f"{settings.server_url}/realms/{settings.realm}"
 
     decoder = JWKSTokenDecoder(key_provider=jwks_manager, issuer=issuer)
@@ -65,21 +74,17 @@ async def init_auth_service(
         await jwks_manager.refresh_keys()
     except Exception:
         logger.exception("auth_service_init_failed")
-        await jwks_manager.close()
         raise
 
     logger.info("auth_service_ready", issuer=issuer)
     app_state.auth_service = auth_service
-    return jwks_manager
 
 
 async def init_oauth_provider(
-    app_state: State, settings: KeycloakSettings
-) -> KeycloakClient:
+    app_state: State, settings: KeycloakSettings, http_client: httpx.AsyncClient
+) -> None:
     """Initialize OAuth provider for token operations."""
-    client = KeycloakClient(settings)
-    app_state.oauth_provider = client
-    return client
+    app_state.oauth_provider = KeycloakClient(settings, http_client)
 
 
 async def shutdown_services(

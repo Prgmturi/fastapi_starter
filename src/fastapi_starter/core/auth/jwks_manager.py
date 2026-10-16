@@ -11,9 +11,17 @@ logger = get_logger(__name__)
 
 
 class JWKSManager:
-    def __init__(self, settings: KeycloakSettings) -> None:
+    def __init__(
+        self, settings: KeycloakSettings, http_client: httpx.AsyncClient
+    ) -> None:
+        """
+        Args:
+            settings: Keycloak realm and key cache configuration.
+            http_client: Client for the calls to Keycloak. The caller owns it
+                and closes it at shutdown (see lifespan in main.py).
+        """
         self._settings = settings
-        self._client = httpx.AsyncClient(timeout=settings.request_timeout)
+        self._client = http_client
         self._jwks: PyJWKSet | None = None
         self._last_refresh: float = 0
 
@@ -27,10 +35,6 @@ class JWKSManager:
         if self._jwks is None:
             return False
         return (time.time() - self._last_refresh) < self._settings.jwks_cache_ttl
-
-    async def close(self) -> None:
-        """Close the underlying HTTP client."""
-        await self._client.aclose()
 
     async def refresh_keys(self) -> None:
         """
