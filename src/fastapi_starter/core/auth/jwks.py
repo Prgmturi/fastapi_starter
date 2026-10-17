@@ -131,5 +131,5 @@ class JWKSTokenDecoder:
             raise UnauthorizedError("Authentication failed") from e
 
     async def health_check(self) -> bool:
-        """Delegate health check to the underlying key provider."""
+        """True while the key provider can hand out signing keys."""
         return await self._key_provider.health_check()

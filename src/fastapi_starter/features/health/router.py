@@ -1,4 +1,6 @@
-from typing import Annotated, Any
+import asyncio
+from collections.abc import Awaitable, Callable
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
@@ -7,9 +9,19 @@ from pydantic import BaseModel
 from fastapi_starter.core.auth import TokenValidator, get_auth_service
 from fastapi_starter.core.config import AppSettings
 from fastapi_starter.core.database.dependencies import get_db_manager
+from fastapi_starter.core.logging import get_logger
 from fastapi_starter.core.protocols import HealthCheckable
 
+logger = get_logger(__name__)
+
 health_router = APIRouter(prefix="/health", tags=["health"])
+
+# A check slower than this counts as failed. SELECT 1 answers in
+# milliseconds: a database that takes seconds cannot serve requests either,
+# and the probe must answer before the orchestrator gives up on it.
+CHECK_TIMEOUT_SECONDS = 2.0
+
+CheckStatus = Literal["healthy", "unhealthy"]
 
 
 def get_app_settings(request: Request) -> AppSettings:
@@ -26,11 +38,39 @@ class HealthResponse(BaseModel):
     environment: str
 
 
+class CheckResult(BaseModel):
+    """Outcome of one readiness check. The cause of a failure is only logged."""
+
+    status: CheckStatus
+
+
 class ReadinessResponse(BaseModel):
     """Readiness check response schema."""
 
-    status: str
-    checks: dict[str, Any]
+    status: CheckStatus
+    checks: dict[str, CheckResult]
+
+
+async def run_check(name: str, check: Callable[[], Awaitable[bool]]) -> CheckResult:
+    """Run one readiness check, within CHECK_TIMEOUT_SECONDS.
+
+    The endpoint needs no token, and error texts carry internal hosts and
+    user names: the cause goes to the logs, the body gets only the status.
+    """
+    try:
+        async with asyncio.timeout(CHECK_TIMEOUT_SECONDS):
+            ready = await check()
+    except TimeoutError:
+        error = f"timed out after {CHECK_TIMEOUT_SECONDS} s"
+    except Exception as e:
+        error = f"{type(e).__name__}: {e}"
+    else:
+        if ready:
+            return CheckResult(status="healthy")
+        error = "reported not ready"
+
+    logger.warning("readiness_check_failed", check=name, error=error)
+    return CheckResult(status="unhealthy")
 
 
 @health_router.get(
@@ -65,24 +105,17 @@ async def readiness(
     db_manager: Annotated[HealthCheckable, Depends(get_db_manager)],
     auth_service: Annotated[TokenValidator, Depends(get_auth_service)],
 ) -> JSONResponse:
-    """Readiness probe - checks database and auth backend connectivity."""
-    checks: dict[str, Any] = {}
+    """Readiness probe - can this instance serve requests now?
 
-    # Check database
-    try:
-        await db_manager.health_check()
-        checks["database"] = {"status": "healthy"}
-    except Exception as e:
-        checks["database"] = {"status": "unhealthy", "error": str(e)}
+    A failed check answers 503. The auth check does not call the identity
+    provider: while its signing keys are cached, tokens can be verified.
+    """
+    checks = {
+        "database": await run_check("database", db_manager.health_check),
+        "auth": await run_check("auth", auth_service.health_check),
+    }
 
-    # Check auth backend (provider-agnostic)
-    try:
-        await auth_service.health_check()
-        checks["auth"] = {"status": "healthy"}
-    except Exception as e:
-        checks["auth"] = {"status": "unhealthy", "error": str(e)}
-
-    all_healthy = all(check.get("status") == "healthy" for check in checks.values())
+    all_healthy = all(check.status == "healthy" for check in checks.values())
 
     response = ReadinessResponse(
         status="healthy" if all_healthy else "unhealthy",

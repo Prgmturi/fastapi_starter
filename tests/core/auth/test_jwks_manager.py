@@ -318,19 +318,38 @@ class TestGetSigningKeyFromToken:
 
 
 class TestHealthCheck:
-    """JWKSManager.health_check() — is the certs endpoint reachable?"""
+    """JWKSManager.health_check() — can tokens be verified right now?
 
-    async def test_true_when_certs_endpoint_answers(self, jwks_manager, certs):
-        """[HP] 200 from Keycloak -> True."""
-        assert await jwks_manager.health_check() is True
-        assert len(certs.requests) == 1
+    WHY: the readiness probe calls it every few seconds on every instance.
+    With Keycloak down the cached keys keep verifying tokens, so the check
+    must not call Keycloak: otherwise every instance turns "not ready" at
+    the same moment and the whole API goes down with it.
+    """
 
-    async def test_raises_when_keycloak_unreachable(self, jwks_manager, certs):
-        """[EC] Network error propagates to the readiness probe."""
+    async def test_false_before_any_key_is_cached(self, jwks_manager, certs):
+        """[EC] Nothing cached -> False, without calling Keycloak."""
+        assert await jwks_manager.health_check() is False
+        assert certs.requests == []
+
+    async def test_true_with_cached_keys_and_keycloak_down(self, jwks_manager, certs):
+        """[HP] Keys cached, Keycloak unreachable -> True, no request."""
+        await jwks_manager.refresh_keys()
+        certs.requests.clear()
         certs.down = True
 
-        with pytest.raises(httpx.ConnectError):
-            await jwks_manager.health_check()
+        assert await jwks_manager.health_check() is True
+        assert certs.requests == []
+
+    async def test_true_once_the_cache_has_expired(
+        self, jwks_manager, certs, clock, keycloak_settings
+    ):
+        """[EC] Past the TTL the old keys still verify tokens -> True, no request."""
+        await jwks_manager.refresh_keys()
+        certs.requests.clear()
+        clock.advance(keycloak_settings.jwks_cache_ttl + 1)
+
+        assert await jwks_manager.health_check() is True
+        assert certs.requests == []
 
 
 class TestKeyProviderProtocol:
