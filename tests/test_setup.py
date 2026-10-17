@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.datastructures import State
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from fastapi_starter.core.body_limit import BodySizeLimitMiddleware
 from fastapi_starter.core.config import (
     DatabaseSettings,
     KeycloakSettings,
@@ -291,5 +292,6 @@ class TestRegisterMiddleware:
             TrustedHostMiddleware,
             SecureHeadersMiddleware,
             CORSMiddleware,
+            BodySizeLimitMiddleware,
             UnhandledExceptionMiddleware,
         ]

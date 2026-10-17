@@ -43,6 +43,11 @@ class ServerSettings(BaseSettings):
         default=["*"],
         description="Allowed headers for CORS",
     )
+    max_body_size: int = Field(
+        default=64 * 1024,
+        gt=0,
+        description="Largest request body in bytes; a larger one gets 413",
+    )
     # Host validation
     trusted_hosts: list[str] = Field(
         default=["localhost", "127.0.0.1"],

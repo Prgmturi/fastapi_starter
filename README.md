@@ -113,6 +113,8 @@ JWT validation uses `JWKSManager`, which caches Keycloak's public keys (`KEYCLOA
 
 `/auth/token` and `/auth/refresh` answer with `Cache-Control: no-store`, so no browser or proxy keeps the access token. `/auth/refresh` and `/auth/logout` act on the cookie, which the browser sends by itself: a request whose `Origin` is not in `SERVER_CORS_ORIGINS` gets 403 before Keycloak is called. List your frontend there even when a proxy serves it on the same origin as the API. A request without `Origin`, such as one from curl or a mobile app, passes.
 
+Set `KEYCLOAK_ALLOWED_REDIRECT_URIS` to the frontend's callback URLs (a JSON list). `/auth/login` and `/auth/token` then refuse any other `redirect_uri` with 422: the authorization code goes to that address, and a pattern in Keycloak's *Valid redirect URIs* such as `http://localhost:*` lets any port through. The comparison is exact, so `http://localhost:3000/callback/` is a different URI. Unset, only Keycloak checks.
+
 The API accepts only access tokens (`typ: Bearer`) issued to `KEYCLOAK_CLIENT_ID` or to a client listed in `KEYCLOAK_ALLOWED_CLIENTS` (`azp`). ID tokens, refresh tokens and the tokens of other clients in the realm get 401, even though Keycloak signs them with the same keys. Up to 30 seconds of clock difference with Keycloak are tolerated.
 
 ## Adding a feature
@@ -242,6 +244,7 @@ APP_LOG_LEVEL=INFO
 DATABASE_PORT=5433
 KEYCLOAK_CLIENT_SECRET=...         # required
 SERVER_CORS_ORIGINS=["http://localhost:3000"]
+SERVER_MAX_BODY_SIZE=65536         # bytes; a larger request body gets 413
 ```
 
 `/docs`, `/redoc`, and `/openapi.json` are only available when `APP_ENVIRONMENT=development`.

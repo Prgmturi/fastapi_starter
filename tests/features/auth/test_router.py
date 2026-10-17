@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from fastapi_starter.core.config import ServerSettings, Settings
+from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.core.exceptions import (
     ExternalServiceError,
     ServiceUnavailableError,
@@ -448,3 +449,93 @@ class TestOriginCheckWithAnyOrigin:
         )
 
         assert_problem(response, 403)
+
+
+# The one redirect_uri allowed in TestAllowedRedirectUris.
+ALLOWED_REDIRECT_URI = "http://localhost:3000/callback"
+
+
+class TestAllowedRedirectUris:
+    """KEYCLOAK_ALLOWED_REDIRECT_URIS: /auth/login and /auth/token take only these.
+
+    WHY: Keycloak sends the authorization code to redirect_uri. A login link
+    that names another address sends the victim's code to whoever made the
+    link, who holds the PKCE verifier and can exchange the code here.
+    Keycloak checks its own list too, but a pattern there such as
+    http://localhost:* lets any port through. The match is exact, as
+    RFC 9700 asks.
+    """
+
+    UNLISTED = [
+        "https://evil.example/callback",
+        "http://localhost:3001/callback",
+        "http://localhost:3000/callback/",
+        "http://localhost:3000/callback?next=https://evil.example",
+    ]
+
+    @pytest.fixture
+    def test_keycloak_settings(self) -> KeycloakSettings:
+        """Overrides the feature fixture: one allowed redirect_uri."""
+        return KeycloakSettings(
+            cookie_name=TEST_COOKIE_NAME,
+            cookie_secure=False,
+            allowed_redirect_uris=[ALLOWED_REDIRECT_URI],
+        )
+
+    @pytest.mark.parametrize("redirect_uri", UNLISTED)
+    async def test_login_rejects_unlisted_uri(self, oauth_client, redirect_uri):
+        """[SEC] /auth/login with an unlisted redirect_uri -> 422, no URL."""
+        response = await oauth_client.get(
+            "/auth/login",
+            params={"redirect_uri": redirect_uri, "code_challenge": "abc123"},
+        )
+
+        body = assert_problem(response, 422)
+        assert body["detail"] == "redirect_uri not allowed"
+        assert body["field"] == "redirect_uri"
+
+    @pytest.mark.parametrize("redirect_uri", UNLISTED)
+    async def test_token_rejects_unlisted_uri(
+        self, oauth_client, mock_oauth_provider, redirect_uri
+    ):
+        """[SEC] /auth/token, unlisted redirect_uri -> 422, Keycloak not called."""
+        response = await oauth_client.post(
+            "/auth/token", json={**TOKEN_REQUEST, "redirect_uri": redirect_uri}
+        )
+
+        assert_problem(response, 422)
+        mock_oauth_provider.exchange_code.assert_not_called()
+        assert "set-cookie" not in response.headers
+
+    async def test_login_accepts_listed_uri(self, oauth_client):
+        """[HP] Listed redirect_uri -> 200 with the authorization URL."""
+        response = await oauth_client.get(
+            "/auth/login",
+            params={"redirect_uri": ALLOWED_REDIRECT_URI, "code_challenge": "abc123"},
+        )
+
+        assert response.status_code == 200
+
+    async def test_token_accepts_listed_uri(self, oauth_client):
+        """[HP] Listed redirect_uri -> 200 with the access token."""
+        response = await oauth_client.post(
+            "/auth/token", json={**TOKEN_REQUEST, "redirect_uri": ALLOWED_REDIRECT_URI}
+        )
+
+        assert response.status_code == 200
+
+
+class TestRedirectUriWithoutList:
+    """KEYCLOAK_ALLOWED_REDIRECT_URIS empty, the default: Keycloak alone decides."""
+
+    async def test_any_redirect_uri_reaches_keycloak(self, oauth_client):
+        """[HP] No list -> the API does not check redirect_uri."""
+        response = await oauth_client.get(
+            "/auth/login",
+            params={
+                "redirect_uri": "https://app.example.com/callback",
+                "code_challenge": "abc123",
+            },
+        )
+
+        assert response.status_code == 200
