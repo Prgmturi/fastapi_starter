@@ -51,6 +51,12 @@ class OAuthProvider(Protocol):
     - Revoking tokens (logout)
 
     Implement once per OAuth2 provider (Keycloak, Auth0, etc.).
+
+    The methods that call the provider raise only:
+    - UnauthorizedError when the provider rejects the code or the refresh token
+    - ExternalServiceError when the provider cannot be reached or answers in
+      an unexpected way, with a message that names no URL or library error
+    No library-specific exception leaks out: callers catch these two only.
     """
 
     def build_authorization_url(
