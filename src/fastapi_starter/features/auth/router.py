@@ -9,6 +9,7 @@ from fastapi_starter.core.auth.cookies import (
     read_refresh_cookie,
     set_refresh_cookie,
 )
+from fastapi_starter.core.auth.origin import require_allowed_origin
 from fastapi_starter.core.auth.schemas import AccessTokenResponse
 from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.core.exceptions import ExternalServiceError, UnauthorizedError
@@ -34,6 +35,11 @@ def get_keycloak_settings(request: Request) -> KeycloakSettings:
     """Get KeycloakSettings from app state."""
     settings: KeycloakSettings = request.app.state.settings.keycloak
     return settings
+
+
+def no_store(response: Response) -> None:
+    """Keep the token out of browser and proxy caches (RFC 6749, 5.1)."""
+    response.headers["Cache-Control"] = "no-store"
 
 
 @auth_router.get(
@@ -81,6 +87,7 @@ async def get_login_url(
     "/token",
     response_model=AccessTokenResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(no_store)],
     summary="Exchange code for tokens",
     description=(
         "Exchange authorization code for tokens. "
@@ -128,6 +135,7 @@ async def exchange_token(
     "/refresh",
     response_model=AccessTokenResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_allowed_origin), Depends(no_store)],
     summary="Refresh access token",
     description=(
         "Get new tokens using the refresh token stored in the HttpOnly cookie. "
@@ -170,6 +178,7 @@ async def refresh_token(
     "/logout",
     response_model=MessageResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_allowed_origin)],
     summary="Logout user",
     description="Revoke refresh token and clear the HttpOnly cookie.",
 )

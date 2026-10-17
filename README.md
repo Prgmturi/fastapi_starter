@@ -111,6 +111,8 @@ GET  /auth/me       → decodes bearer JWT via JWKS, returns User
 
 JWT validation uses `JWKSManager`, which caches Keycloak's public keys (`KEYCLOAK_JWKS_CACHE_TTL`) and fetches them again when a token names an unknown key, as after a key rotation. It calls Keycloak one request at a time and at most once every `KEYCLOAK_JWKS_MIN_REFRESH_INTERVAL` seconds (default 30). If Keycloak is unreachable, the keys already in the cache keep working; a token whose key is not cached gets 503, so the client retries instead of logging the user out.
 
+`/auth/token` and `/auth/refresh` answer with `Cache-Control: no-store`, so no browser or proxy keeps the access token. `/auth/refresh` and `/auth/logout` act on the cookie, which the browser sends by itself: a request whose `Origin` is not in `SERVER_CORS_ORIGINS` gets 403 before Keycloak is called. List your frontend there even when a proxy serves it on the same origin as the API. A request without `Origin`, such as one from curl or a mobile app, passes.
+
 The API accepts only access tokens (`typ: Bearer`) issued to `KEYCLOAK_CLIENT_ID` or to a client listed in `KEYCLOAK_ALLOWED_CLIENTS` (`azp`). ID tokens, refresh tokens and the tokens of other clients in the realm get 401, even though Keycloak signs them with the same keys. Up to 30 seconds of clock difference with Keycloak are tolerated.
 
 ## Adding a feature

@@ -10,12 +10,16 @@ behaviour, and that the refresh token never leaks into the response body.
 
 from unittest.mock import AsyncMock
 
+import pytest
+
+from fastapi_starter.core.config import ServerSettings, Settings
 from fastapi_starter.core.exceptions import (
     ExternalServiceError,
     ServiceUnavailableError,
     UnauthorizedError,
 )
 from tests.features.auth.conftest import TEST_COOKIE_NAME
+from tests.test_exception_handlers import assert_problem
 
 
 class TestGetLoginUrl:
@@ -337,3 +341,110 @@ class TestGetMe:
             "detail": "Service temporarily unavailable",
             "service": "auth",
         }
+
+
+TOKEN_REQUEST = {
+    "code": "valid-auth-code",
+    "code_verifier": "a" * 43,
+    "redirect_uri": "http://localhost:3000/callback",
+}
+
+# The two endpoints that act on the refresh cookie.
+COOKIE_ENDPOINTS = ["/auth/refresh", "/auth/logout"]
+
+# One of the default SERVER_CORS_ORIGINS.
+FRONTEND_ORIGIN = "http://localhost:3000"
+
+
+class TestTokensAreNotCached:
+    """Responses that carry a token say Cache-Control: no-store.
+
+    WHY: RFC 6749, section 5.1. Without it a browser or a proxy may keep
+    the access token in its cache, where the next user of the machine
+    can find it.
+    """
+
+    async def test_token_response(self, oauth_client):
+        """[SEC] POST /auth/token -> no-store."""
+        response = await oauth_client.post("/auth/token", json=TOKEN_REQUEST)
+
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+
+    async def test_refresh_response(self, oauth_client_with_cookie):
+        """[SEC] POST /auth/refresh -> no-store."""
+        response = await oauth_client_with_cookie.post("/auth/refresh")
+
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+
+
+class TestOriginCheck:
+    """/auth/refresh and /auth/logout answer only the frontend's origins.
+
+    WHY: the browser attaches the refresh cookie by itself, so any page can
+    make it POST to these endpoints. That POST needs no CORS preflight:
+    CORS only hides the answer, after Keycloak has rotated or revoked the
+    token. SameSite=lax blocks it in recent browsers; this is the second
+    line of defence.
+    """
+
+    @pytest.mark.parametrize("path", COOKIE_ENDPOINTS)
+    @pytest.mark.parametrize("origin", ["https://evil.example", "null"])
+    async def test_foreign_origin_gets_403(
+        self, oauth_client_with_cookie, mock_oauth_provider, path, origin
+    ):
+        """[SEC] Origin not allowed -> 403, Keycloak not called, cookie untouched.
+
+        "null" is what sandboxed pages and some privacy settings send.
+        """
+        response = await oauth_client_with_cookie.post(path, headers={"Origin": origin})
+
+        body = assert_problem(response, 403)
+        assert body["detail"] == "Origin not allowed"
+        mock_oauth_provider.refresh_token.assert_not_called()
+        mock_oauth_provider.logout.assert_not_called()
+        assert "set-cookie" not in response.headers
+
+    @pytest.mark.parametrize("path", COOKIE_ENDPOINTS)
+    async def test_frontend_origin_passes(self, oauth_client_with_cookie, path):
+        """[HP] Origin listed in SERVER_CORS_ORIGINS -> 200."""
+        response = await oauth_client_with_cookie.post(
+            path, headers={"Origin": FRONTEND_ORIGIN}
+        )
+
+        assert response.status_code == 200
+
+    @pytest.mark.parametrize("path", COOKIE_ENDPOINTS)
+    async def test_request_without_origin_passes(self, oauth_client_with_cookie, path):
+        """[HP] No Origin: not a browser (curl, a mobile app) -> 200."""
+        response = await oauth_client_with_cookie.post(path)
+
+        assert response.status_code == 200
+
+
+class TestOriginCheckWithAnyOrigin:
+    """SERVER_CORS_ORIGINS=["*"]: the check accepts what CORS accepts."""
+
+    @pytest.fixture
+    def settings(self) -> Settings:
+        """Overrides the root fixture: CORS open to every origin."""
+        return Settings(
+            server=ServerSettings(trusted_hosts=["testserver"], cors_origins=["*"]),
+        )
+
+    async def test_any_origin_passes(self, oauth_client_with_cookie):
+        """[HP] "*" -> an origin not listed anywhere passes."""
+        response = await oauth_client_with_cookie.post(
+            "/auth/refresh", headers={"Origin": "https://app.example.com"}
+        )
+
+        assert response.status_code == 200
+
+    async def test_null_origin_still_gets_403(self, oauth_client_with_cookie):
+        """[SEC] "*" does not cover "null": that page has no origin to trust."""
+        response = await oauth_client_with_cookie.post(
+            "/auth/refresh", headers={"Origin": "null"}
+        )
+
+        assert_problem(response, 403)
