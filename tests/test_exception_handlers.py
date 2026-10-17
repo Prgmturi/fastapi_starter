@@ -1,19 +1,28 @@
-"""Tests for exception handlers — global error handling.
+"""Tests for exception handlers — every error as an RFC 9457 problem.
 
 Module under test: src/fastapi_starter/exception_handlers.py
-Layer: Application integration (TestClient)
+Also exercised: core/problem_details.py (the body) and
+core/error_middleware.py (500s from the routes)
+Layer: Application integration (HTTP client against the real app)
 
-WHY these tests exist: Exception handlers are the last line of defense.
-They convert domain exceptions to HTTP responses. If they break, the API
-returns unparseable errors or leaks internal details.
+WHY these tests exist: exception handlers are the last line of defense.
+They turn exceptions into HTTP responses. If they break, the API returns
+errors a client cannot parse, or leaks internal details.
 
-STRATEGY: Create a temporary test endpoint that raises each exception type,
-then call it via TestClient and verify the HTTP response.
+STRATEGY: Create a temporary endpoint that raises each exception type,
+then call it through the app and verify the whole HTTP response.
 """
 
-from fastapi import HTTPException
+from http import HTTPStatus
 
+import pytest
+from fastapi import HTTPException
+from pydantic import BaseModel, Field
+from structlog.testing import capture_logs
+
+from fastapi_starter.core.auth.dependencies import AdminUser, CurrentUser
 from fastapi_starter.core.exceptions import (
+    AppExceptionError,
     ConflictError,
     ExternalServiceError,
     ForbiddenError,
@@ -22,17 +31,117 @@ from fastapi_starter.core.exceptions import (
     ValidationError,
 )
 
+# The media type RFC 9457 defines; written here, not imported, so the
+# test checks the code against the standard.
+PROBLEM_JSON = "application/problem+json"
+
+
+def assert_problem(response, status: int) -> dict:
+    """The response is an RFC 9457 problem document for this status.
+
+    Returns the body, for the checks specific to each test.
+    """
+    assert response.status_code == status
+    assert response.headers["content-type"] == PROBLEM_JSON
+    body = response.json()
+    assert body["type"] == "about:blank"
+    assert body["title"] == HTTPStatus(status).phrase
+    assert body["status"] == status
+    assert isinstance(body["detail"], str)
+    assert body["detail"]
+    return body
+
+
+class TestSameShapeForEveryError:
+    """401, 403, 404, 405, 422 and 500 answer with the same members.
+
+    WHY: a client reads every error with one piece of code. Before this
+    there were three shapes: {"detail": "..."}, {"detail": [...]} and
+    {"message", "details"}.
+    """
+
+    @pytest.fixture(autouse=True)
+    def routes(self, app, mock_auth_service, sample_user):
+        async def validate(token: str):
+            if token == "user-token":
+                return sample_user
+            raise UnauthorizedError("Invalid token")
+
+        mock_auth_service.validate_token.side_effect = validate
+
+        @app.get("/shape/me")
+        async def me(user: CurrentUser) -> dict[str, str]:
+            return {"id": user.id}
+
+        @app.get("/shape/admin")
+        async def admin(user: AdminUser) -> dict[str, str]:
+            return {"id": user.id}
+
+        @app.get("/shape/items")
+        async def items(limit: int) -> dict[str, int]:
+            return {"limit": limit}
+
+        @app.get("/shape/crash")
+        async def crash() -> None:
+            raise RuntimeError("bug")
+
+    @pytest.mark.parametrize(
+        ("method", "path", "headers", "status"),
+        [
+            pytest.param("GET", "/shape/me", {}, 401, id="401-no-token"),
+            pytest.param(
+                "GET",
+                "/shape/me",
+                {"Authorization": "Bearer bad"},
+                401,
+                id="401-invalid-token",
+            ),
+            pytest.param(
+                "GET",
+                "/shape/admin",
+                {"Authorization": "Bearer user-token"},
+                403,
+                id="403-missing-role",
+            ),
+            pytest.param("GET", "/shape/nowhere", {}, 404, id="404-unknown-path"),
+            pytest.param("POST", "/shape/me", {}, 405, id="405-wrong-method"),
+            pytest.param("GET", "/shape/items?limit=many", {}, 422, id="422-bad-query"),
+            pytest.param("GET", "/shape/crash", {}, 500, id="500-unexpected"),
+        ],
+    )
+    async def test_answers_with_a_problem_document(
+        self, client, method, path, headers, status
+    ):
+        """[HP] Same media type and members, whatever produced the error."""
+        response = await client.request(method, path, headers=headers)
+
+        assert_problem(response, status)
+
+    async def test_401_without_token_asks_for_a_bearer_token(self, client):
+        """[HP] RFC 9110: a 401 says which scheme to use (WWW-Authenticate)."""
+        response = await client.get("/shape/me")
+
+        body = assert_problem(response, 401)
+        assert body["detail"] == "Not authenticated"
+        assert response.headers["WWW-Authenticate"] == "Bearer"
+
+    async def test_405_lists_the_allowed_methods(self, client):
+        """[HP] RFC 9110: a 405 lists the methods the path accepts (Allow)."""
+        response = await client.post("/shape/me")
+
+        assert_problem(response, 405)
+        assert response.headers["Allow"] == "GET"
+
 
 class TestAppExceptionHandler:
     """Handler for AppExceptionError and subclasses.
 
-    WHY: This handler converts every AppExceptionError subclass into
-    a JSON response with {message, details}. We must verify each
-    subclass produces the correct HTTP status code and response body.
+    WHY: every AppExceptionError subclass must produce its status code,
+    its message as detail, and its details as extension members.
     """
 
-    async def test_not_found_returns_404_with_message(self, app, client):
-        """[HP] NotFoundError -> 404 + JSON body."""
+    async def test_not_found_returns_404(self, app, client):
+        """[HP] NotFoundError -> 404, resource and identifier as members."""
 
         @app.get("/exc/not-found")
         async def _():
@@ -40,12 +149,13 @@ class TestAppExceptionHandler:
 
         response = await client.get("/exc/not-found")
 
-        assert response.status_code == 404
-        body = response.json()
-        assert body["message"] == "User with id 'abc-123' not found"
+        body = assert_problem(response, 404)
+        assert body["detail"] == "User with id 'abc-123' not found"
+        assert body["resource"] == "User"
+        assert body["identifier"] == "abc-123"
 
-    async def test_conflict_returns_409_with_message(self, app, client):
-        """[HP] ConflictError -> 409 + JSON body."""
+    async def test_conflict_returns_409(self, app, client):
+        """[HP] ConflictError -> 409."""
 
         @app.get("/exc/conflict")
         async def _():
@@ -53,12 +163,12 @@ class TestAppExceptionHandler:
 
         response = await client.get("/exc/conflict")
 
-        assert response.status_code == 409
-        body = response.json()
-        assert body["message"] == "already exists"
+        body = assert_problem(response, 409)
+        assert body["detail"] == "already exists"
+        assert body["resource"] == "User"
 
-    async def test_validation_error_returns_422_with_message(self, app, client):
-        """[HP] ValidationError -> 422 + JSON body."""
+    async def test_validation_error_returns_422(self, app, client):
+        """[HP] ValidationError -> 422 with the field as a member."""
 
         @app.get("/exc/validation")
         async def _():
@@ -66,14 +176,14 @@ class TestAppExceptionHandler:
 
         response = await client.get("/exc/validation")
 
-        assert response.status_code == 422
-        body = response.json()
-        assert body["message"] == "invalid input"
+        body = assert_problem(response, 422)
+        assert body["detail"] == "invalid input"
+        assert body["field"] == "email"
 
     async def test_unauthorized_returns_401_with_headers(self, app, client):
         """[HP] UnauthorizedError -> 401 + WWW-Authenticate header.
 
-        WHY: RFC 7235 requires WWW-Authenticate header on 401 responses.
+        WHY: RFC 9110 requires WWW-Authenticate header on 401 responses.
         """
 
         @app.get("/exc/unauthorized")
@@ -82,11 +192,11 @@ class TestAppExceptionHandler:
 
         response = await client.get("/exc/unauthorized")
 
-        assert response.status_code == 401
+        assert_problem(response, 401)
         assert response.headers["WWW-Authenticate"] == "Bearer"
 
-    async def test_forbidden_returns_403_with_message(self, app, client):
-        """[HP] ForbiddenError -> 403 + JSON body."""
+    async def test_forbidden_returns_403(self, app, client):
+        """[HP] ForbiddenError -> 403."""
 
         @app.get("/exc/forbidden")
         async def _():
@@ -94,16 +204,15 @@ class TestAppExceptionHandler:
 
         response = await client.get("/exc/forbidden")
 
-        assert response.status_code == 403
-        body = response.json()
-        assert body["message"] == "Permission denied"
+        body = assert_problem(response, 403)
+        assert body["detail"] == "Permission denied"
 
     async def test_external_service_returns_502_with_service_name(
         self,
         app,
         client,
     ):
-        """[HP] ExternalServiceError -> 502 + JSON with service name."""
+        """[HP] ExternalServiceError -> 502 with the service as a member."""
 
         @app.get("/exc/external")
         async def _():
@@ -111,40 +220,166 @@ class TestAppExceptionHandler:
 
         response = await client.get("/exc/external")
 
-        assert response.status_code == 502
-        body = response.json()
-        assert body["message"] == "Error communicating with Keycloak"
-        assert body["details"]["service"] == "Keycloak"
+        body = assert_problem(response, 502)
+        assert body["detail"] == "Error communicating with Keycloak"
+        assert body["service"] == "Keycloak"
 
-    async def test_response_body_structure(self, app, client):
-        """[HP] Response always has {message: str, details: dict}.
+    async def test_details_cannot_replace_standard_members(self, app, client):
+        """[EC] A details key named like an RFC member is dropped.
 
-        WHY: Frontend relies on this structure for error display.
+        WHY: status and title must match the response. A subclass that
+        put "status" in its details would otherwise lie to the client.
         """
 
-        @app.get("/exc/structure")
+        @app.get("/exc/clash")
         async def _():
-            raise NotFoundError("Item")
+            raise AppExceptionError(
+                "clash",
+                status_code=400,
+                details={"status": 999, "title": "Fine", "hint": "kept"},
+            )
 
-        response = await client.get("/exc/structure")
-        body = response.json()
+        response = await client.get("/exc/clash")
 
-        assert "message" in body
-        assert "details" in body
-        assert isinstance(body["message"], str)
-        assert isinstance(body["details"], dict)
+        body = assert_problem(response, 400)
+        assert body["hint"] == "kept"
+
+    async def test_status_without_standard_phrase_gets_generic_title(self, app, client):
+        """[EC] A status with no standard phrase (499) still gets a problem.
+
+        WHY: building the error response must never fail, or the client
+        gets a bare 500 instead of the error the code meant to send.
+        """
+
+        @app.get("/exc/unregistered")
+        async def _():
+            raise AppExceptionError("client closed request", status_code=499)
+
+        response = await client.get("/exc/unregistered")
+
+        assert response.status_code == 499
+        assert response.headers["content-type"] == PROBLEM_JSON
+        assert response.json() == {
+            "type": "about:blank",
+            "title": "Error",
+            "status": 499,
+            "detail": "client closed request",
+        }
+
+
+class TestHTTPExceptionHandler:
+    """Starlette and FastAPI HTTPException.
+
+    WHY: routing raises them for unknown paths (404) and wrong methods
+    (405), and FastAPI code often raises them directly.
+    """
+
+    async def test_detail_text_becomes_detail(self, app, client):
+        """[HP] HTTPException(418, "I'm a teapot") -> problem with that detail."""
+
+        @app.get("/exc/http-exception")
+        async def _():
+            raise HTTPException(status_code=418, detail="I'm a teapot")
+
+        response = await client.get("/exc/http-exception")
+
+        body = assert_problem(response, 418)
+        assert body["detail"] == "I'm a teapot"
+
+    async def test_structured_detail_is_not_rendered(self, app, client):
+        """[EC] A non-text detail is replaced by the status phrase.
+
+        WHY: str() of a dict or an enum shows Python reprs to the client.
+        Structured data goes in an AppExceptionError subclass instead.
+        """
+
+        @app.get("/exc/structured")
+        async def _():
+            raise HTTPException(status_code=400, detail={"field": "x"})
+
+        response = await client.get("/exc/structured")
+
+        body = assert_problem(response, 400)
+        assert body["detail"] == "Bad Request"
+
+    async def test_status_without_body_sends_no_body(self, app, client):
+        """[EC] 304 must not carry a body (RFC 9110), so no problem document."""
+
+        @app.get("/exc/not-modified")
+        async def _():
+            raise HTTPException(status_code=304)
+
+        response = await client.get("/exc/not-modified")
+
+        assert response.status_code == 304
+        assert response.content == b""
+
+
+class Credentials(BaseModel):
+    username: str
+    password: str = Field(min_length=12)
+
+
+class TestRequestValidationHandler:
+    """Invalid query, path or body -> 422 with one entry per field.
+
+    WHY: the client needs to know which field to fix and why. FastAPI's
+    own format put the list under "detail", where RFC 9457 wants text.
+    """
+
+    async def test_lists_each_invalid_field(self, app, client):
+        """[HP] errors has loc, msg and type for every invalid field."""
+
+        @app.get("/v/items")
+        async def _(limit: int, offset: int) -> dict[str, int]:
+            return {"limit": limit, "offset": offset}
+
+        response = await client.get("/v/items?limit=many")
+
+        body = assert_problem(response, 422)
+        assert body["detail"] == "Request validation failed"
+        assert [(e["loc"], e["type"]) for e in body["errors"]] == [
+            (["query", "limit"], "int_parsing"),
+            (["query", "offset"], "missing"),
+        ]
+        for error in body["errors"]:
+            assert set(error) == {"loc", "msg", "type"}
+            assert error["msg"]
+
+    async def test_does_not_echo_what_the_client_sent(self, app, client):
+        """[SEC] The rejected value is not copied into the response.
+
+        WHY: FastAPI's default echoed the input. For a password that is
+        too short, the password itself came back and reached any log or
+        tool that records responses.
+        """
+
+        @app.post("/v/login")
+        async def _(credentials: Credentials) -> dict[str, str]:
+            return {"username": credentials.username}
+
+        response = await client.post(
+            "/v/login", json={"username": "mario", "password": "hunter2"}
+        )
+
+        assert_problem(response, 422)
+        assert "hunter2" not in response.text
 
 
 class TestUnhandledExceptionHandler:
-    """Catch-all handler for unexpected exceptions.
+    """Unexpected exceptions: a generic 500 with the usual headers.
+
+    UnhandledExceptionMiddleware answers the exceptions from the routes,
+    inside the middleware stack. The handler for Exception stays as the
+    last resort for exceptions raised by a middleware.
 
     WHY: Security requirement. Unhandled exceptions must not leak
     stack traces or internal details. The response must always be
-    a generic 500 with 'Internal server error'.
+    a generic 500.
     """
 
     async def test_returns_500(self, app, client):
-        """[HP] Unknown Exception -> 500."""
+        """[HP] Unknown Exception -> 500 problem document."""
 
         @app.get("/exc/unhandled")
         async def _():
@@ -152,7 +387,7 @@ class TestUnhandledExceptionHandler:
 
         response = await client.get("/exc/unhandled")
 
-        assert response.status_code == 500
+        assert_problem(response, 500)
 
     async def test_response_hides_internal_details(self, app, client):
         """[HP] Response body is generic, no stack trace.
@@ -166,26 +401,66 @@ class TestUnhandledExceptionHandler:
             raise RuntimeError("secret database password exposed")
 
         response = await client.get("/exc/hidden")
-        body = response.json()
 
-        assert body["message"] == "Internal server error"
-        assert body["details"] == {}
-        assert "secret" not in str(body)
-        assert "password" not in str(body)
+        body = assert_problem(response, 500)
+        assert body["detail"] == "An unexpected error occurred."
+        assert "secret" not in response.text
+        assert "password" not in response.text
 
-    async def test_http_exception_re_raised(self, app, client):
-        """[EC] FastAPI HTTPException is re-raised, not caught.
+    async def test_500_keeps_the_headers_of_every_response(self, app, client):
+        """[HP] A 500 has X-Request-ID, the security headers and CORS.
 
-        WHY: The unhandled handler explicitly checks for HTTPException
-        and re-raises it so FastAPI's built-in handler processes it.
-        This preserves correct 401/403/404 behavior for Depends() errors.
+        WHY: Starlette runs the handler for Exception in ServerErrorMiddleware,
+        outside every middleware of the app. The 500 lacked X-Request-ID, so
+        nobody could find it in the logs, and CORS, so the frontend could not
+        read it and saw a "CORS error" instead of the 500.
         """
 
-        @app.get("/exc/http-exception")
+        @app.get("/exc/crash")
         async def _():
-            raise HTTPException(status_code=418, detail="I'm a teapot")
+            raise RuntimeError("bug")
 
-        response = await client.get("/exc/http-exception")
+        response = await client.get(
+            "/exc/crash", headers={"Origin": "http://localhost:3000"}
+        )
 
-        assert response.status_code == 418
-        assert response.json()["detail"] == "I'm a teapot"
+        assert_problem(response, 500)
+        assert response.headers["X-Request-ID"]
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert (
+            response.headers["access-control-allow-origin"] == "http://localhost:3000"
+        )
+
+    async def test_500_is_logged_as_a_completed_request(self, app, client):
+        """[HP] request_completed is logged for a 500 too, with its status.
+
+        WHY: the exception used to cross LoggingMiddleware, which then never
+        wrote request_completed: the failed request had no line with its
+        status and duration.
+        """
+
+        @app.get("/exc/crash")
+        async def _():
+            raise RuntimeError("bug")
+
+        with capture_logs() as logs:
+            await client.get("/exc/crash")
+
+        completed = [log for log in logs if log["event"] == "request_completed"]
+        assert [log["status_code"] for log in completed] == [500]
+
+    async def test_middleware_crash_still_gets_a_problem(self, app, client):
+        """[EC] An exception raised by a middleware still gets a problem 500.
+
+        WHY: the error middleware only sees what happens closer to the
+        routes. For a bug in an outer middleware, the handler registered
+        for Exception stays as the last resort, without those headers.
+        """
+
+        @app.middleware("http")
+        async def broken(request, call_next):
+            raise RuntimeError("middleware bug")
+
+        response = await client.get("/health/live")
+
+        assert_problem(response, 500)

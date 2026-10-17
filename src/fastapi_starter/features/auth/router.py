@@ -9,9 +9,14 @@ from fastapi_starter.core.auth.cookies import (
     read_refresh_cookie,
     set_refresh_cookie,
 )
+from fastapi_starter.core.auth.origin import require_allowed_origin
 from fastapi_starter.core.auth.schemas import AccessTokenResponse
 from fastapi_starter.core.config.keycloak import KeycloakSettings
-from fastapi_starter.core.exceptions import ExternalServiceError, UnauthorizedError
+from fastapi_starter.core.exceptions import (
+    ExternalServiceError,
+    UnauthorizedError,
+    ValidationError,
+)
 from fastapi_starter.core.logging import get_logger
 from fastapi_starter.features.auth.schemas import (
     AuthUrlResponse,
@@ -36,6 +41,28 @@ def get_keycloak_settings(request: Request) -> KeycloakSettings:
     return settings
 
 
+def check_redirect_uri(redirect_uri: str, settings: KeycloakSettings) -> None:
+    """Refuse a redirect_uri missing from KEYCLOAK_ALLOWED_REDIRECT_URIS.
+
+    Keycloak sends the authorization code to redirect_uri: a login link
+    with another address would send the user's code to whoever made it.
+    Keycloak checks its own list too, but a pattern there such as
+    http://localhost:* lets any port through. The match is exact, as
+    RFC 9700 asks. With an empty list only Keycloak checks.
+
+    Raises:
+        ValidationError: If the list is set and redirect_uri is not in it (422).
+    """
+    allowed = settings.allowed_redirect_uris
+    if allowed and redirect_uri not in allowed:
+        raise ValidationError("redirect_uri not allowed", field="redirect_uri")
+
+
+def no_store(response: Response) -> None:
+    """Keep the token out of browser and proxy caches (RFC 6749, 5.1)."""
+    response.headers["Cache-Control"] = "no-store"
+
+
 @auth_router.get(
     "/login",
     response_model=AuthUrlResponse,
@@ -53,6 +80,7 @@ async def get_login_url(
         Query(description="PKCE code challenge (base64url SHA256 of verifier)"),
     ],
     oauth_provider: Annotated[OAuthProvider, Depends(get_oauth_provider)],
+    keycloak_settings: Annotated[KeycloakSettings, Depends(get_keycloak_settings)],
     state: Annotated[
         str | None,
         Query(description="Optional state for CSRF protection"),
@@ -68,6 +96,8 @@ async def get_login_url(
     4. Redirect user to returned authorization_url
     5. After login, provider redirects to redirect_uri with code
     """
+    check_redirect_uri(redirect_uri, keycloak_settings)
+
     authorization_url = oauth_provider.build_authorization_url(
         redirect_uri=redirect_uri,
         code_challenge=code_challenge,
@@ -81,6 +111,7 @@ async def get_login_url(
     "/token",
     response_model=AccessTokenResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(no_store)],
     summary="Exchange code for tokens",
     description=(
         "Exchange authorization code for tokens. "
@@ -104,6 +135,8 @@ async def exchange_token(
 
     Returns access_token in body. Refresh token is set as HttpOnly cookie.
     """
+    check_redirect_uri(request.redirect_uri, keycloak_settings)
+
     tokens = await oauth_provider.exchange_code(
         code=request.code,
         code_verifier=request.code_verifier,
@@ -128,6 +161,7 @@ async def exchange_token(
     "/refresh",
     response_model=AccessTokenResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_allowed_origin), Depends(no_store)],
     summary="Refresh access token",
     description=(
         "Get new tokens using the refresh token stored in the HttpOnly cookie. "
@@ -170,6 +204,7 @@ async def refresh_token(
     "/logout",
     response_model=MessageResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_allowed_origin)],
     summary="Logout user",
     description="Revoke refresh token and clear the HttpOnly cookie.",
 )

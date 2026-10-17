@@ -118,18 +118,17 @@ class User(BaseModel):
             return f"{self.first_name} {self.last_name}"
         return self.first_name or self.last_name
 
+    # RoleEnum is a StrEnum: a member equals its value, so "admin" matches
+    # RoleEnum.ADMIN and a string that names no role matches nothing. The
+    # old RoleEnum("manager") conversion raised ValueError: a 500 in a route.
     def has_role(self, role: RoleEnum | str) -> bool:
-        if isinstance(role, str):
-            role = RoleEnum(role)
         return role in self.roles
 
     def has_any_role(self, roles: list[RoleEnum | str]) -> bool:
-        role_enums = [RoleEnum(r) if isinstance(r, str) else r for r in roles]
-        return any(role in self.roles for role in role_enums)
+        return any(role in self.roles for role in roles)
 
     def has_all_roles(self, roles: list[RoleEnum | str]) -> bool:
-        role_enums = [RoleEnum(r) if isinstance(r, str) else r for r in roles]
-        return all(role in self.roles for role in role_enums)
+        return all(role in self.roles for role in roles)
 
     def is_staff(self) -> bool:
         return any(role in self.roles for role in RoleEnum.staff_roles())

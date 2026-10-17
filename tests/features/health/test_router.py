@@ -8,9 +8,25 @@ WHY these tests exist: Health endpoints are called by Kubernetes
 or traffic gets routed to broken instances.
 """
 
+import asyncio
+from unittest.mock import MagicMock
+
 import pytest
 
 from fastapi_starter.core.config import AppSettings, ServerSettings, Settings
+from fastapi_starter.features.health import router as health_router_module
+
+
+@pytest.fixture
+def logger(monkeypatch):
+    """Records the router's log calls.
+
+    WHY a fake: module loggers are cached on first use
+    (cache_logger_on_first_use), so capture_logs cannot see them.
+    """
+    fake = MagicMock()
+    monkeypatch.setattr(health_router_module, "logger", fake)
+    return fake
 
 
 class TestLiveness:
@@ -142,16 +158,88 @@ class TestReadiness:
         assert "database" in body["checks"]
         assert "auth" in body["checks"]
 
-    async def test_unhealthy_check_includes_error_message(
-        self,
-        client,
-        mock_db_provider,
-    ):
-        """[EC] Unhealthy check includes the error string for debugging."""
-        mock_db_provider.health_check.side_effect = RuntimeError("connection refused")
+    async def test_check_reporting_false_returns_503(self, client, mock_db_provider):
+        """[EC] health_check() returns False -> unhealthy, like an exception.
+
+        WHY: the protocol returns a bool. The probe used to ignore it, so a
+        component that answered False was reported healthy.
+        """
+        mock_db_provider.health_check.return_value = False
 
         response = await client.get("/health/ready")
-        body = response.json()
 
-        assert "error" in body["checks"]["database"]
-        assert "connection refused" in body["checks"]["database"]["error"]
+        assert response.status_code == 503
+        assert response.json()["checks"]["database"]["status"] == "unhealthy"
+
+    async def test_slow_check_times_out(
+        self, client, mock_db_provider, logger, monkeypatch
+    ):
+        """[EC] A check slower than the timeout -> unhealthy, and the probe answers.
+
+        WHY: a database that does not answer would hold the probe open
+        until the orchestrator gives up, with no reason in the logs.
+        """
+        monkeypatch.setattr(health_router_module, "CHECK_TIMEOUT_SECONDS", 0.01)
+
+        async def slow() -> bool:
+            await asyncio.sleep(1)
+            return True
+
+        mock_db_provider.health_check.side_effect = slow
+
+        response = await client.get("/health/ready")
+
+        assert response.status_code == 503
+        assert response.json()["checks"]["database"]["status"] == "unhealthy"
+        logger.warning.assert_called_once_with(
+            "readiness_check_failed",
+            check="database",
+            error="timed out after 0.01 s",
+        )
+
+
+class TestReadinessHidesDetails:
+    """GET /health/ready tells only the status of each check.
+
+    WHY: the endpoint needs no token. Error texts carry internal hosts,
+    user names and URLs: they go to the logs, not to whoever asks.
+    """
+
+    ERROR = (
+        'connection to server at "10.0.3.4", port 5432 failed: '
+        'password authentication failed for user "appbase"'
+    )
+
+    async def test_body_holds_only_the_status(self, client, mock_db_provider):
+        """[SEC] DB down -> the body names the failed check and nothing else."""
+        mock_db_provider.health_check.side_effect = RuntimeError(self.ERROR)
+
+        response = await client.get("/health/ready")
+
+        assert response.status_code == 503
+        assert response.json() == {
+            "status": "unhealthy",
+            "checks": {
+                "database": {"status": "unhealthy"},
+                "auth": {"status": "healthy"},
+            },
+        }
+        assert "10.0.3.4" not in response.text
+
+    async def test_cause_goes_to_the_log(self, client, mock_db_provider, logger):
+        """[HP] The error text is logged, with the name of the check."""
+        mock_db_provider.health_check.side_effect = RuntimeError(self.ERROR)
+
+        await client.get("/health/ready")
+
+        logger.warning.assert_called_once_with(
+            "readiness_check_failed",
+            check="database",
+            error=f"RuntimeError: {self.ERROR}",
+        )
+
+    async def test_healthy_checks_log_nothing(self, client, logger):
+        """[HP] All healthy -> no warning: the probe runs every few seconds."""
+        await client.get("/health/ready")
+
+        logger.warning.assert_not_called()

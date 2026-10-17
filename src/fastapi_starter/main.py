@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from fastapi_starter.core.config import Settings, get_settings
 from fastapi_starter.core.logging import configure_logging, get_logger
+from fastapi_starter.core.problem_details import PROBLEM_RESPONSES
 from fastapi_starter.exception_handlers import register_exception_handlers
 from fastapi_starter.features.auth.router import auth_router
 from fastapi_starter.features.health.router import health_router
@@ -84,6 +85,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version=settings.app.version,
         debug=settings.app.debug,
         lifespan=lifespan,
+        # Every route documents its errors as problem details (RFC 9457)
+        responses=PROBLEM_RESPONSES,
         docs_url="/docs" if settings.app.is_development else None,
         redoc_url="/redoc" if settings.app.is_development else None,
         openapi_url="/openapi.json" if settings.app.is_development else None,

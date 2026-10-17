@@ -8,6 +8,9 @@ A wrong URL template means auth silently fails in production. We verify
 computed fields produce correct URLs and security-sensitive fields are masked.
 """
 
+import pydantic
+import pytest
+
 from fastapi_starter.core.config.app import AppSettings
 from fastapi_starter.core.config.database import DatabaseSettings
 from fastapi_starter.core.config.keycloak import KeycloakSettings
@@ -184,3 +187,12 @@ class TestServerSettings:
         settings = ServerSettings()
         assert "http://localhost:3000" in settings.cors_origins
         assert "http://localhost:5173" in settings.cors_origins
+
+    def test_default_max_body_size(self):
+        """[HP] Request bodies are limited to 64 KiB by default."""
+        assert ServerSettings().max_body_size == 64 * 1024
+
+    def test_max_body_size_must_be_positive(self):
+        """[EC] 0 would answer 413 to every request with a body."""
+        with pytest.raises(pydantic.ValidationError):
+            ServerSettings(max_body_size=0)

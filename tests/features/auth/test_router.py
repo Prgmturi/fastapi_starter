@@ -10,12 +10,17 @@ behaviour, and that the refresh token never leaks into the response body.
 
 from unittest.mock import AsyncMock
 
+import pytest
+
+from fastapi_starter.core.config import ServerSettings, Settings
+from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.core.exceptions import (
     ExternalServiceError,
     ServiceUnavailableError,
     UnauthorizedError,
 )
 from tests.features.auth.conftest import TEST_COOKIE_NAME
+from tests.test_exception_handlers import assert_problem
 
 
 class TestGetLoginUrl:
@@ -329,7 +334,208 @@ class TestGetMe:
         )
 
         assert response.status_code == 503
+        assert response.headers["content-type"] == "application/problem+json"
         assert response.json() == {
-            "message": "Service temporarily unavailable",
-            "details": {"service": "auth"},
+            "type": "about:blank",
+            "title": "Service Unavailable",
+            "status": 503,
+            "detail": "Service temporarily unavailable",
+            "service": "auth",
         }
+
+
+TOKEN_REQUEST = {
+    "code": "valid-auth-code",
+    "code_verifier": "a" * 43,
+    "redirect_uri": "http://localhost:3000/callback",
+}
+
+# The two endpoints that act on the refresh cookie.
+COOKIE_ENDPOINTS = ["/auth/refresh", "/auth/logout"]
+
+# One of the default SERVER_CORS_ORIGINS.
+FRONTEND_ORIGIN = "http://localhost:3000"
+
+
+class TestTokensAreNotCached:
+    """Responses that carry a token say Cache-Control: no-store.
+
+    WHY: RFC 6749, section 5.1. Without it a browser or a proxy may keep
+    the access token in its cache, where the next user of the machine
+    can find it.
+    """
+
+    async def test_token_response(self, oauth_client):
+        """[SEC] POST /auth/token -> no-store."""
+        response = await oauth_client.post("/auth/token", json=TOKEN_REQUEST)
+
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+
+    async def test_refresh_response(self, oauth_client_with_cookie):
+        """[SEC] POST /auth/refresh -> no-store."""
+        response = await oauth_client_with_cookie.post("/auth/refresh")
+
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+
+
+class TestOriginCheck:
+    """/auth/refresh and /auth/logout answer only the frontend's origins.
+
+    WHY: the browser attaches the refresh cookie by itself, so any page can
+    make it POST to these endpoints. That POST needs no CORS preflight:
+    CORS only hides the answer, after Keycloak has rotated or revoked the
+    token. SameSite=lax blocks it in recent browsers; this is the second
+    line of defence.
+    """
+
+    @pytest.mark.parametrize("path", COOKIE_ENDPOINTS)
+    @pytest.mark.parametrize("origin", ["https://evil.example", "null"])
+    async def test_foreign_origin_gets_403(
+        self, oauth_client_with_cookie, mock_oauth_provider, path, origin
+    ):
+        """[SEC] Origin not allowed -> 403, Keycloak not called, cookie untouched.
+
+        "null" is what sandboxed pages and some privacy settings send.
+        """
+        response = await oauth_client_with_cookie.post(path, headers={"Origin": origin})
+
+        body = assert_problem(response, 403)
+        assert body["detail"] == "Origin not allowed"
+        mock_oauth_provider.refresh_token.assert_not_called()
+        mock_oauth_provider.logout.assert_not_called()
+        assert "set-cookie" not in response.headers
+
+    @pytest.mark.parametrize("path", COOKIE_ENDPOINTS)
+    async def test_frontend_origin_passes(self, oauth_client_with_cookie, path):
+        """[HP] Origin listed in SERVER_CORS_ORIGINS -> 200."""
+        response = await oauth_client_with_cookie.post(
+            path, headers={"Origin": FRONTEND_ORIGIN}
+        )
+
+        assert response.status_code == 200
+
+    @pytest.mark.parametrize("path", COOKIE_ENDPOINTS)
+    async def test_request_without_origin_passes(self, oauth_client_with_cookie, path):
+        """[HP] No Origin: not a browser (curl, a mobile app) -> 200."""
+        response = await oauth_client_with_cookie.post(path)
+
+        assert response.status_code == 200
+
+
+class TestOriginCheckWithAnyOrigin:
+    """SERVER_CORS_ORIGINS=["*"]: the check accepts what CORS accepts."""
+
+    @pytest.fixture
+    def settings(self) -> Settings:
+        """Overrides the root fixture: CORS open to every origin."""
+        return Settings(
+            server=ServerSettings(trusted_hosts=["testserver"], cors_origins=["*"]),
+        )
+
+    async def test_any_origin_passes(self, oauth_client_with_cookie):
+        """[HP] "*" -> an origin not listed anywhere passes."""
+        response = await oauth_client_with_cookie.post(
+            "/auth/refresh", headers={"Origin": "https://app.example.com"}
+        )
+
+        assert response.status_code == 200
+
+    async def test_null_origin_still_gets_403(self, oauth_client_with_cookie):
+        """[SEC] "*" does not cover "null": that page has no origin to trust."""
+        response = await oauth_client_with_cookie.post(
+            "/auth/refresh", headers={"Origin": "null"}
+        )
+
+        assert_problem(response, 403)
+
+
+# The one redirect_uri allowed in TestAllowedRedirectUris.
+ALLOWED_REDIRECT_URI = "http://localhost:3000/callback"
+
+
+class TestAllowedRedirectUris:
+    """KEYCLOAK_ALLOWED_REDIRECT_URIS: /auth/login and /auth/token take only these.
+
+    WHY: Keycloak sends the authorization code to redirect_uri. A login link
+    that names another address sends the victim's code to whoever made the
+    link, who holds the PKCE verifier and can exchange the code here.
+    Keycloak checks its own list too, but a pattern there such as
+    http://localhost:* lets any port through. The match is exact, as
+    RFC 9700 asks.
+    """
+
+    UNLISTED = [
+        "https://evil.example/callback",
+        "http://localhost:3001/callback",
+        "http://localhost:3000/callback/",
+        "http://localhost:3000/callback?next=https://evil.example",
+    ]
+
+    @pytest.fixture
+    def test_keycloak_settings(self) -> KeycloakSettings:
+        """Overrides the feature fixture: one allowed redirect_uri."""
+        return KeycloakSettings(
+            cookie_name=TEST_COOKIE_NAME,
+            cookie_secure=False,
+            allowed_redirect_uris=[ALLOWED_REDIRECT_URI],
+        )
+
+    @pytest.mark.parametrize("redirect_uri", UNLISTED)
+    async def test_login_rejects_unlisted_uri(self, oauth_client, redirect_uri):
+        """[SEC] /auth/login with an unlisted redirect_uri -> 422, no URL."""
+        response = await oauth_client.get(
+            "/auth/login",
+            params={"redirect_uri": redirect_uri, "code_challenge": "abc123"},
+        )
+
+        body = assert_problem(response, 422)
+        assert body["detail"] == "redirect_uri not allowed"
+        assert body["field"] == "redirect_uri"
+
+    @pytest.mark.parametrize("redirect_uri", UNLISTED)
+    async def test_token_rejects_unlisted_uri(
+        self, oauth_client, mock_oauth_provider, redirect_uri
+    ):
+        """[SEC] /auth/token, unlisted redirect_uri -> 422, Keycloak not called."""
+        response = await oauth_client.post(
+            "/auth/token", json={**TOKEN_REQUEST, "redirect_uri": redirect_uri}
+        )
+
+        assert_problem(response, 422)
+        mock_oauth_provider.exchange_code.assert_not_called()
+        assert "set-cookie" not in response.headers
+
+    async def test_login_accepts_listed_uri(self, oauth_client):
+        """[HP] Listed redirect_uri -> 200 with the authorization URL."""
+        response = await oauth_client.get(
+            "/auth/login",
+            params={"redirect_uri": ALLOWED_REDIRECT_URI, "code_challenge": "abc123"},
+        )
+
+        assert response.status_code == 200
+
+    async def test_token_accepts_listed_uri(self, oauth_client):
+        """[HP] Listed redirect_uri -> 200 with the access token."""
+        response = await oauth_client.post(
+            "/auth/token", json={**TOKEN_REQUEST, "redirect_uri": ALLOWED_REDIRECT_URI}
+        )
+
+        assert response.status_code == 200
+
+
+class TestRedirectUriWithoutList:
+    """KEYCLOAK_ALLOWED_REDIRECT_URIS empty, the default: Keycloak alone decides."""
+
+    async def test_any_redirect_uri_reaches_keycloak(self, oauth_client):
+        """[HP] No list -> the API does not check redirect_uri."""
+        response = await oauth_client.get(
+            "/auth/login",
+            params={
+                "redirect_uri": "https://app.example.com/callback",
+                "code_challenge": "abc123",
+            },
+        )
+
+        assert response.status_code == 200

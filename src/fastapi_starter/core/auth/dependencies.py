@@ -1,12 +1,12 @@
 from collections.abc import Callable, Coroutine
 from typing import Annotated, Any
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from fastapi_starter.core.auth.protocols import TokenValidator
 from fastapi_starter.core.auth.schemas import RoleEnum, User
-from fastapi_starter.core.exceptions import UnauthorizedError
+from fastapi_starter.core.exceptions import ForbiddenError, UnauthorizedError
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -28,14 +28,10 @@ async def get_current_user(
     Dependency that extracts and validates the current user.
 
     Raises:
-        HTTPException 401: If no token or invalid token
+        UnauthorizedError: If no token or invalid token (401)
     """
     if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise UnauthorizedError("Not authenticated")
 
     user = await auth_service.validate_token(credentials.credentials)
     return user
@@ -68,6 +64,9 @@ def require_roles(
     """
     Factory for role-based access control dependency.
 
+    The user needs at least one of the listed roles. Only the listed roles
+    count: the hierarchy is spelled out in the aliases below.
+
     Usage:
         @router.get("/admin", dependencies=[Depends(require_roles([RoleEnum.ADMIN]))])
         async def admin_endpoint():
@@ -79,16 +78,24 @@ def require_roles(
                 User,
                 Depends(require_roles([RoleEnum.ADMIN]))]):
             return user
+
+    Raises:
+        ValueError: If the list is empty or names a role that does not exist
     """
+    if not required_roles:
+        raise ValueError("require_roles needs at least one role")
+    # Converted now, when the module that defines the route is imported:
+    # RoleEnum("manger") raises ValueError, so a misspelled role stops the
+    # app at startup instead of answering 500 to every request.
+    allowed: list[RoleEnum | str] = [RoleEnum(role) for role in required_roles]
 
     async def role_checker(
         user: Annotated[User, Depends(get_current_user)],
     ) -> User:
-        if not user.has_any_role(required_roles):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Required roles: {required_roles}",
-            )
+        if not user.has_any_role(allowed):
+            # "Permission denied" only: the roles that would let the user in
+            # are not the client's business.
+            raise ForbiddenError()
         return user
 
     return role_checker
@@ -98,12 +105,17 @@ def require_roles(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 OptionalUser = Annotated[User | None, Depends(get_optional_user)]
 
-# Role-specific aliases
+# Role-specific aliases. The roles form a hierarchy, highest first:
+# superadmin > admin > collaborator. Each alias lets through its role and
+# every role above it. "user" is not part of the hierarchy.
+SuperAdminUser = Annotated[User, Depends(require_roles([RoleEnum.SUPERADMIN]))]
 AdminUser = Annotated[
     User, Depends(require_roles([RoleEnum.SUPERADMIN, RoleEnum.ADMIN]))
 ]
-SuperAdminUser = Annotated[User, Depends(require_roles([RoleEnum.SUPERADMIN]))]
-CollabUser = Annotated[User, Depends(require_roles([RoleEnum.COLLAB]))]
+CollabUser = Annotated[
+    User,
+    Depends(require_roles([RoleEnum.SUPERADMIN, RoleEnum.ADMIN, RoleEnum.COLLAB])),
+]
 
 __all__ = [
     "get_auth_service",

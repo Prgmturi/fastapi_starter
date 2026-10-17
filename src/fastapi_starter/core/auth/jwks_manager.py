@@ -208,14 +208,11 @@ class JWKSManager:
 
     async def health_check(self) -> bool:
         """
-        Verify Keycloak is reachable.
+        Report whether tokens can be verified now: True once keys are cached.
 
-        Returns:
-            True if Keycloak JWKS endpoint responds.
-
-        Raises:
-            httpx.HTTPError: If Keycloak is unreachable.
+        Keycloak is not called. The readiness probe runs this every few
+        seconds on every instance, and with Keycloak down the cached keys
+        keep verifying tokens (see get_key): calling Keycloak here would
+        turn every instance "not ready" at the same moment.
         """
-        response = await self._client.get(self.jwks_url)
-        response.raise_for_status()
-        return True
+        return self._jwks is not None

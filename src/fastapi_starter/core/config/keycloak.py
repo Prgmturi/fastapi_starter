@@ -43,6 +43,13 @@ class KeycloakSettings(BaseSettings):
             "Empty: only client_id."
         ),
     )
+    allowed_redirect_uris: list[str] = Field(
+        default_factory=list,
+        description=(
+            "redirect_uri values /auth/login and /auth/token accept, compared "
+            "exactly. Empty: not checked here, Keycloak alone decides."
+        ),
+    )
     audience: str = Field(
         default="",
         description=(

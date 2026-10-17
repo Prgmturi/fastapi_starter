@@ -16,7 +16,7 @@ A backend template built with FastAPI to learn and apply real architectural patt
 | **Database** | Async PostgreSQL with SQLAlchemy 2.0. Connection pooling, session lifecycle, base repository pattern. |
 | **Config** | Pydantic Settings, layered by domain (`AppSettings`, `DatabaseSettings`, etc.), loaded from `.env`. |
 | **Logging** | structlog. JSON in production with service metadata, colorized in development. Request IDs on every log line. |
-| **Errors** | Domain exceptions (`NotFoundError`, `UnauthorizedError`, ...) with global handlers. No library exceptions leak to the client. |
+| **Errors** | One format for every error: RFC 9457 problem details (`application/problem+json`). Domain exceptions (`NotFoundError`, `UnauthorizedError`, ...) with global handlers; no internal details reach the client. |
 | **Testing** | Fully async, no real database or auth server needed. Independent of the local `.env`. CI fails below a coverage threshold. |
 
 ## Architecture
@@ -24,7 +24,7 @@ A backend template built with FastAPI to learn and apply real architectural patt
 The project is split into two layers that don't bleed into each other:
 
 ```
-core/       ← infrastructure: auth, database, config, logging, exceptions
+core/       ← infrastructure: auth, database, config, logging, errors
 features/   ← business logic: your endpoints go here
 ```
 
@@ -34,13 +34,17 @@ features/   ← business logic: your endpoints go here
 src/fastapi_starter/
 ├── main.py                  # App factory + lifespan
 ├── setup.py                 # Composition root — the only place that knows everything
+├── exception_handlers.py    # Exceptions → RFC 9457 error responses
 ├── core/
 │   ├── auth/                # JWT validation, JWKS, Keycloak claim extraction
 │   ├── config/              # Settings by domain, loaded from .env
 │   ├── database/            # Async engine, session factory, base repository
 │   ├── logging/             # structlog config + request logging middleware
+│   ├── error_middleware.py  # Unexpected exceptions → 500, inside the middleware stack
 │   ├── exceptions.py        # Domain exception hierarchy
-│   └── protocols.py         # Cross-cutting contracts
+│   ├── problem_details.py   # RFC 9457 error body, also declared in OpenAPI
+│   ├── protocols.py         # Cross-cutting contracts
+│   └── security.py          # Security headers middleware
 └── features/
     ├── auth/                # Login, token exchange, refresh, logout, /me
     └── health/              # /health/live and /health/ready
@@ -107,6 +111,10 @@ GET  /auth/me       → decodes bearer JWT via JWKS, returns User
 
 JWT validation uses `JWKSManager`, which caches Keycloak's public keys (`KEYCLOAK_JWKS_CACHE_TTL`) and fetches them again when a token names an unknown key, as after a key rotation. It calls Keycloak one request at a time and at most once every `KEYCLOAK_JWKS_MIN_REFRESH_INTERVAL` seconds (default 30). If Keycloak is unreachable, the keys already in the cache keep working; a token whose key is not cached gets 503, so the client retries instead of logging the user out.
 
+`/auth/token` and `/auth/refresh` answer with `Cache-Control: no-store`, so no browser or proxy keeps the access token. `/auth/refresh` and `/auth/logout` act on the cookie, which the browser sends by itself: a request whose `Origin` is not in `SERVER_CORS_ORIGINS` gets 403 before Keycloak is called. List your frontend there even when a proxy serves it on the same origin as the API. A request without `Origin`, such as one from curl or a mobile app, passes.
+
+Set `KEYCLOAK_ALLOWED_REDIRECT_URIS` to the frontend's callback URLs (a JSON list). `/auth/login` and `/auth/token` then refuse any other `redirect_uri` with 422: the authorization code goes to that address, and a pattern in Keycloak's *Valid redirect URIs* such as `http://localhost:*` lets any port through. The comparison is exact, so `http://localhost:3000/callback/` is a different URI. Unset, only Keycloak checks.
+
 The API accepts only access tokens (`typ: Bearer`) issued to `KEYCLOAK_CLIENT_ID` or to a client listed in `KEYCLOAK_ALLOWED_CLIENTS` (`azp`). ID tokens, refresh tokens and the tokens of other clients in the realm get 401, even though Keycloak signs them with the same keys. Up to 30 seconds of clock difference with Keycloak are tolerated.
 
 ## Adding a feature
@@ -146,21 +154,54 @@ app.include_router(products_router)  # add yours here
 ## Protecting endpoints
 
 ```python
-from fastapi_starter.core.auth.dependencies import CurrentUser, AdminUser, require_roles
+from fastapi_starter.core.auth.dependencies import CurrentUser, AdminUser, CollabUser, require_roles
 from fastapi_starter.core.auth.schemas import RoleEnum
 
 # Any authenticated user
 @router.get("/profile")
 async def profile(user: CurrentUser): ...
 
-# Admin or superadmin only
+# Admin or superadmin
 @router.get("/stats")
 async def stats(user: AdminUser): ...
+
+# Collaborator, admin or superadmin
+@router.get("/drafts")
+async def drafts(user: CollabUser): ...
 
 # Custom role check — import Annotated, User, Depends alongside the rest
 @router.delete("/users/{id}")
 async def delete_user(user: Annotated[User, Depends(require_roles([RoleEnum.SUPERADMIN]))]): ...
 ```
+
+Roles form a hierarchy: superadmin > admin > collaborator. `SuperAdminUser`, `AdminUser` and `CollabUser` let through their role and every role above it; `user` is not part of the hierarchy. `require_roles` lets through only the roles you list, and a role that does not exist stops the app at startup. A user without the role gets 403 with `"detail": "Permission denied"`: the response does not say which roles were needed.
+
+## Errors
+
+Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem document, sent as `application/problem+json`:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "Product with id '3' not found",
+  "resource": "Product",
+  "identifier": 3
+}
+```
+
+- `status`, `title` and `detail` are always there. `title` is the standard phrase of the status code; `detail` explains what went wrong in this request.
+- An invalid request (422) adds `errors`, one entry per invalid field: `{"loc": ["query", "limit"], "msg": "Input should be a valid integer, …", "type": "int_parsing"}`. The rejected value is not sent back.
+- To return an error from your code, raise a subclass of `AppExceptionError` from `core/exceptions.py` (`NotFoundError`, `ConflictError`, `ForbiddenError`, …). Its `details` become extra members, like `resource` and `identifier` above.
+- OpenAPI documents this format as the `default` response of every route.
+- Every response, 500 included, has an `X-Request-ID` header: the logs of that request carry the same id. An unexpected error answers only `"An unexpected error occurred."`; the cause and the traceback go to the logs, also with `APP_DEBUG=true`.
+
+## Health checks
+
+- `GET /health/live` answers 200 while the process runs. The Docker `HEALTHCHECK` calls it.
+- `GET /health/ready` answers 200 when the instance can serve requests and 503 when a check fails. The body is a status report, not a problem document, and gives only the status of each check: `{"status": "unhealthy", "checks": {"database": {"status": "unhealthy"}, "auth": {"status": "healthy"}}}`. The endpoint needs no token, so the cause goes to the logs only, as `readiness_check_failed`. A check that takes more than 2 seconds counts as failed.
+- The auth check does not call Keycloak: it passes while the signing keys are cached. If Keycloak goes down, the instances keep validating tokens with those keys and stay ready.
 
 ## Running tests
 
@@ -203,6 +244,7 @@ APP_LOG_LEVEL=INFO
 DATABASE_PORT=5433
 KEYCLOAK_CLIENT_SECRET=...         # required
 SERVER_CORS_ORIGINS=["http://localhost:3000"]
+SERVER_MAX_BODY_SIZE=65536         # bytes; a larger request body gets 413
 ```
 
 `/docs`, `/redoc`, and `/openapi.json` are only available when `APP_ENVIRONMENT=development`.
@@ -212,7 +254,7 @@ SERVER_CORS_ORIGINS=["http://localhost:3000"]
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [SQLAlchemy](https://docs.sqlalchemy.org/en/20/) 2.0 (async)
 - [Alembic](https://alembic.sqlalchemy.org/)
-- [Keycloak](https://www.keycloak.org/) via [python-keycloak](https://python-keycloak.readthedocs.io/)
+- [Keycloak](https://www.keycloak.org/), reached with [httpx](https://www.python-httpx.org/) and [PyJWT](https://pyjwt.readthedocs.io/)
 - [structlog](https://www.structlog.org/)
 - [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
 - [uv](https://docs.astral.sh/uv/)

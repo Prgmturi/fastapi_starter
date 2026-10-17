@@ -13,12 +13,14 @@ from fastapi_starter.core.auth.extractors import KeycloakClaimExtractor
 from fastapi_starter.core.auth.jwks import JWKSTokenDecoder
 from fastapi_starter.core.auth.jwks_manager import JWKSManager
 from fastapi_starter.core.auth.service import AuthService
+from fastapi_starter.core.body_limit import BodySizeLimitMiddleware
 from fastapi_starter.core.config import (
     DatabaseSettings,
     KeycloakSettings,
     ServerSettings,
 )
 from fastapi_starter.core.database import DatabaseManager
+from fastapi_starter.core.error_middleware import UnhandledExceptionMiddleware
 from fastapi_starter.core.logging import LoggingMiddleware, get_logger
 from fastapi_starter.core.security import SecureHeadersMiddleware
 from fastapi_starter.features.auth.client import KeycloakClient
@@ -109,8 +111,21 @@ async def shutdown_services(
 
 
 def register_middleware(app: FastAPI, settings: ServerSettings) -> None:
-    """Register middleware. ORDER MATTERS: execute in REVERSE add order."""
-    # CORS (executes last)
+    """Register middleware. ORDER MATTERS: execute in REVERSE add order.
+
+    A request crosses them from the last added to the first, then reaches
+    the routes; the response goes back the other way:
+    Logging → TrustedHost → SecureHeaders → CORS → BodySizeLimit →
+    UnhandledException → routes.
+    """
+    # Closest to the routes: an unexpected exception becomes a 500 here, and
+    # on its way out the 500 gets CORS, security headers and X-Request-ID
+    # like any other response.
+    app.add_middleware(UnhandledExceptionMiddleware)
+
+    # Inside CORS, so its 413 gets the same headers as any other error.
+    app.add_middleware(BodySizeLimitMiddleware, max_body_size=settings.max_body_size)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -121,11 +136,10 @@ def register_middleware(app: FastAPI, settings: ServerSettings) -> None:
 
     app.add_middleware(SecureHeadersMiddleware)
 
-    # TrustedHostMiddleware (executes after secure headers)
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=settings.trusted_hosts,
     )
 
-    # Logging (executes first)
+    # Outermost: sees every request first and every response last
     app.add_middleware(LoggingMiddleware)
