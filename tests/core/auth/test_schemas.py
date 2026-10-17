@@ -311,6 +311,28 @@ class TestUser:
 
         assert user.has_role("user") is True
 
+    def test_has_role_unknown_string_is_false(self):
+        """[EC] has_role("manager") -> False, not ValueError.
+
+        WHY: a role that does not exist is a role the user does not have.
+        Before, RoleEnum("manager") raised ValueError: a 500 inside a route.
+        """
+        user = _make_user(roles=[RoleEnum.ADMIN])
+
+        assert user.has_role("manager") is False
+
+    def test_has_any_role_skips_unknown_strings(self):
+        """[EC] has_any_role(["manager", "admin"]) -> True for an admin."""
+        user = _make_user(roles=[RoleEnum.ADMIN])
+
+        assert user.has_any_role(["manager", "admin"]) is True
+
+    def test_has_all_roles_unknown_string_is_false(self):
+        """[EC] has_all_roles(["admin", "manager"]) -> False, not ValueError."""
+        user = _make_user(roles=[RoleEnum.ADMIN])
+
+        assert user.has_all_roles(["admin", "manager"]) is False
+
     def test_has_any_role_true_partial_match(self):
         """[HP] has_any_role returns True if user has at least one."""
         user = _make_user(roles=[RoleEnum.USER])

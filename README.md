@@ -150,21 +150,27 @@ app.include_router(products_router)  # add yours here
 ## Protecting endpoints
 
 ```python
-from fastapi_starter.core.auth.dependencies import CurrentUser, AdminUser, require_roles
+from fastapi_starter.core.auth.dependencies import CurrentUser, AdminUser, CollabUser, require_roles
 from fastapi_starter.core.auth.schemas import RoleEnum
 
 # Any authenticated user
 @router.get("/profile")
 async def profile(user: CurrentUser): ...
 
-# Admin or superadmin only
+# Admin or superadmin
 @router.get("/stats")
 async def stats(user: AdminUser): ...
+
+# Collaborator, admin or superadmin
+@router.get("/drafts")
+async def drafts(user: CollabUser): ...
 
 # Custom role check — import Annotated, User, Depends alongside the rest
 @router.delete("/users/{id}")
 async def delete_user(user: Annotated[User, Depends(require_roles([RoleEnum.SUPERADMIN]))]): ...
 ```
+
+Roles form a hierarchy: superadmin > admin > collaborator. `SuperAdminUser`, `AdminUser` and `CollabUser` let through their role and every role above it; `user` is not part of the hierarchy. `require_roles` lets through only the roles you list, and a role that does not exist stops the app at startup. A user without the role gets 403 with `"detail": "Permission denied"`: the response does not say which roles were needed.
 
 ## Errors
 
