@@ -9,12 +9,17 @@ the wiring and error handling — particularly that partial initialization
 failures properly clean up already-initialized resources.
 """
 
+import json
+from collections.abc import AsyncGenerator
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from jwt.algorithms import RSAAlgorithm
 from starlette.datastructures import State
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -24,10 +29,12 @@ from fastapi_starter.core.config import (
     KeycloakSettings,
     ServerSettings,
 )
+from fastapi_starter.core.database import DatabaseManager
 from fastapi_starter.core.error_middleware import UnhandledExceptionMiddleware
 from fastapi_starter.core.logging import LoggingMiddleware
 from fastapi_starter.core.security import SecureHeadersMiddleware
 from fastapi_starter.features.auth.client import KeycloakClient
+from fastapi_starter.main import create_app, lifespan
 from fastapi_starter.setup import (
     create_keycloak_http_client,
     init_auth_service,
@@ -209,6 +216,103 @@ class TestInitOAuthProvider:
         await init_oauth_provider(state, KeycloakSettings(), http_client)
 
         assert isinstance(state.oauth_provider, KeycloakClient)
+
+
+class OfflineDatabaseManager(DatabaseManager):
+    """The real manager, minus the one query that needs a server.
+
+    connect() builds the engine without connecting: SQLAlchemy opens the
+    first connection at the first query, and health_check runs that query.
+    """
+
+    async def health_check(self) -> bool:
+        return True
+
+
+@pytest.fixture(scope="module")
+def realm_jwks() -> dict[str, Any]:
+    """Key set as Keycloak's certs endpoint publishes it, with one key.
+
+    One for the whole module: generating RSA keys is slow.
+    """
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    jwk = json.loads(RSAAlgorithm.to_jwk(private_key.public_key()))
+    return {"keys": [{**jwk, "kid": "key-1", "use": "sig", "alg": "RS256"}]}
+
+
+class TestServicesReachTheRoutes:
+    """What setup.py stores in app.state is what the routes receive.
+
+    WHY: setup.py stores each service in app.state under a name, and a
+    getter (get_db_manager, get_auth_service, get_oauth_provider) reads it
+    back by the same name. app.state has no types, and the other tests
+    replace the getters: with a misspelled name mypy and every test passed,
+    while in production each route that needs the service answered 500.
+    Here the real lifespan runs with only the network replaced, and the
+    routes get their real dependencies.
+    """
+
+    @pytest.fixture
+    async def started_client(
+        self, settings, realm_jwks, monkeypatch
+    ) -> AsyncGenerator[httpx.AsyncClient]:
+        """Client for the app after its real startup.
+
+        No database (OfflineDatabaseManager), and Keycloak is a fake
+        endpoint that serves realm_jwks.
+        """
+
+        def keycloak_http_client(_settings: KeycloakSettings) -> httpx.AsyncClient:
+            transport = httpx.MockTransport(
+                lambda request: httpx.Response(200, json=realm_jwks)
+            )
+            return httpx.AsyncClient(transport=transport)
+
+        monkeypatch.setattr(
+            "fastapi_starter.setup.DatabaseManager", OfflineDatabaseManager
+        )
+        monkeypatch.setattr(
+            "fastapi_starter.main.create_keycloak_http_client", keycloak_http_client
+        )
+        app = create_app(settings)
+
+        async with (
+            lifespan(app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+            ) as client,
+        ):
+            yield client
+
+    async def test_readiness_gets_the_database_and_the_auth_service(
+        self, started_client
+    ):
+        """[HP] get_db_manager and get_auth_service find what setup.py stored."""
+        response = await started_client.get("/health/ready")
+
+        assert response.status_code == 200
+        assert response.json()["checks"] == {
+            "database": {"status": "healthy"},
+            "auth": {"status": "healthy"},
+        }
+
+    async def test_login_gets_the_oauth_provider(self, started_client, settings):
+        """[HP] get_oauth_provider and get_keycloak_settings find theirs.
+
+        The URL comes from the real KeycloakClient, built from the settings.
+        """
+        response = await started_client.get(
+            "/auth/login",
+            params={
+                "redirect_uri": "http://localhost:3000/callback",
+                "code_challenge": "challenge",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["authorization_url"].startswith(
+            f"{settings.keycloak.auth_url}?"
+        )
 
 
 class TestShutdownServices:
