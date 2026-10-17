@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/Prgmturi/fastapi_starter/compare/v0.3.0...v0.4.0) (2026-10-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* error bodies change shape. Clients read status, title and detail instead of message/details or detail.
+
+### Features
+
+* send every error as RFC 9457 and harden the HTTP contract ([#35](https://github.com/Prgmturi/fastapi_starter/issues/35)) ([66f534e](https://github.com/Prgmturi/fastapi_starter/commit/66f534e2d4a6967301df90945015ce6d193b5cc0))
+
 ## [0.3.0](https://github.com/Prgmturi/fastapi_starter/compare/v0.2.0...v0.3.0) (2026-10-16)
 
 
