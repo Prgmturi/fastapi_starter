@@ -10,9 +10,8 @@ dependencies = [
     "fastapi>=0.128.0",
     "httpx>=0.28.1",
     "pydantic-settings>=2.14.2",
-    "pydantic[email]>=2.12.5",
+    "pydantic>=2.12.5",
     "pyjwt[crypto]>=2.11.0",
-    "python-keycloak>=6.0.0",
     "sqlalchemy>=2.0.45",
     "structlog>=25.5.0",
     "uvicorn[standard]>=0.40.0",
@@ -75,7 +74,6 @@ warn_unused_configs = true
 
 [[tool.mypy.overrides]]
 module = [
-    "keycloak.*",
     "asyncpg.*",
 ]
 ignore_missing_imports = true
