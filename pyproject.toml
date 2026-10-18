@@ -172,7 +172,9 @@ source = ["fastapi_starter"]
 branch = true
 
 [tool.coverage.report]
-fail_under = 95
+# Raised when coverage grows, never lowered. At 99.16% a margin of about one
+# point leaves room for a branch hard to reach, not for an untested module.
+fail_under = 98
 show_missing = true
 skip_covered = true
 exclude_also = [
