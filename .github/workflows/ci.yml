@@ -57,6 +57,11 @@ jobs:
       - name: Type check
         run: uv run mypy src/
 
+      # Who may import whom: the contracts are in pyproject.toml, under
+      # [tool.importlinter]
+      - name: Import contracts
+        run: uv run lint-imports
+
       # La soglia (fail_under) sta in pyproject.toml. La tabella finisce
       # anche nel riepilogo del run, senza aprire i log.
       - name: Tests

@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from fastapi_starter.core.database.repository import BaseRepository
+from tests.core.database.fakes import FakeModel
 
 
 class TestInitSubclass:
@@ -45,8 +46,6 @@ class TestGetById:
 
     async def test_existing_entity_returned(self, test_repository, mock_session):
         """[HP] session.get returns entity -> returned to caller."""
-        from tests.core.database.conftest import FakeModel
-
         entity = FakeModel(id=1, name="test")
         mock_session.get.return_value = entity
 
@@ -73,8 +72,6 @@ class TestGetAll:
 
     async def test_returns_all_entities(self, test_repository, mock_session):
         """[HP] Multiple entities returned as list."""
-        from tests.core.database.conftest import FakeModel
-
         entities = [FakeModel(id=1, name="a"), FakeModel(id=2, name="b")]
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = entities
@@ -107,8 +104,6 @@ class TestCreate:
 
     async def test_entity_added_and_flushed(self, test_repository, mock_session):
         """[HP] session.add and session.flush called in order."""
-        from tests.core.database.conftest import FakeModel
-
         entity = FakeModel(id=1, name="new")
 
         await test_repository.create(entity)
@@ -118,8 +113,6 @@ class TestCreate:
 
     async def test_returns_same_entity(self, test_repository, mock_session):
         """[HP] Returns the same entity object that was passed in."""
-        from tests.core.database.conftest import FakeModel
-
         entity = FakeModel(id=1, name="new")
 
         result = await test_repository.create(entity)
@@ -135,8 +128,6 @@ class TestDelete:
 
     async def test_entity_deleted_and_flushed(self, test_repository, mock_session):
         """[HP] session.delete and session.flush called."""
-        from tests.core.database.conftest import FakeModel
-
         entity = FakeModel(id=1, name="old")
 
         await test_repository.delete(entity)
