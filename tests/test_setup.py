@@ -200,6 +200,33 @@ class TestInitAuthService:
     @patch("fastapi_starter.setup.KeycloakClaimExtractor")
     @patch("fastapi_starter.setup.JWKSTokenDecoder")
     @patch("fastapi_starter.setup.JWKSManager")
+    async def test_issuer_is_the_public_url(
+        self,
+        mock_jwks_manager,
+        mock_decoder,
+        mock_extractor,
+        mock_auth_service,
+        http_client,
+    ):
+        """[HP] The decoder expects the iss Keycloak writes: its public address.
+
+        WHY: with the internal address, every token signed by a Keycloak
+        published as https://auth.example.com would be refused with 401.
+        """
+        mock_jwks_manager.return_value = AsyncMock()
+
+        settings = KeycloakSettings(
+            host="keycloak", public_url="https://auth.example.com"
+        )
+        await init_auth_service(State(), settings, http_client)
+
+        _, kwargs = mock_decoder.call_args
+        assert kwargs["issuer"] == "https://auth.example.com/realms/fastapi-starter"
+
+    @patch("fastapi_starter.setup.AuthService")
+    @patch("fastapi_starter.setup.KeycloakClaimExtractor")
+    @patch("fastapi_starter.setup.JWKSTokenDecoder")
+    @patch("fastapi_starter.setup.JWKSManager")
     async def test_jwks_refresh_failure_raises_and_leaves_client_open(
         self,
         mock_jwks_manager,

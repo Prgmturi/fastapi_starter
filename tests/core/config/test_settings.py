@@ -121,6 +121,55 @@ class TestKeycloakSettings:
             "http://localhost:8080/realms/test-realm/protocol/openid-connect/auth"
         )
 
+    def test_browser_and_issuer_use_the_public_url(self):
+        """[HP] Login redirect and issuer: public. Tokens and keys: internal.
+
+        WHY: in Docker the API reaches Keycloak at keycloak:8080, a name the
+        browser cannot resolve, while Keycloak signs tokens with its public
+        address. With one URL for both, the login redirect pointed the
+        browser at keycloak:8080.
+        """
+        settings = KeycloakSettings(
+            scheme="http",
+            host="keycloak",
+            port=8080,
+            realm="shop",
+            public_url="https://auth.example.com",
+        )
+
+        assert settings.auth_url == (
+            "https://auth.example.com/realms/shop/protocol/openid-connect/auth"
+        )
+        assert settings.issuer == "https://auth.example.com/realms/shop"
+        assert settings.token_url == (
+            "http://keycloak:8080/realms/shop/protocol/openid-connect/token"
+        )
+        assert settings.certs_url == (
+            "http://keycloak:8080/realms/shop/protocol/openid-connect/certs"
+        )
+
+    def test_without_public_url_everything_is_internal(self):
+        """[HP] KEYCLOAK_PUBLIC_URL unset: development does not change."""
+        settings = KeycloakSettings(realm="shop")
+
+        assert settings.issuer == "http://localhost:8080/realms/shop"
+        assert settings.auth_url == (
+            "http://localhost:8080/realms/shop/protocol/openid-connect/auth"
+        )
+
+    def test_public_url_read_from_the_environment(self, monkeypatch):
+        """[HP] KEYCLOAK_PUBLIC_URL, a trailing slash dropped."""
+        monkeypatch.setenv("KEYCLOAK_PUBLIC_URL", "https://auth.example.com/")
+
+        assert KeycloakSettings(realm="shop").issuer == (
+            "https://auth.example.com/realms/shop"
+        )
+
+    def test_public_url_needs_a_scheme(self):
+        """[EC] "auth.example.com" alone would make a relative redirect."""
+        with pytest.raises(pydantic.ValidationError, match="http:// or https://"):
+            KeycloakSettings(public_url="auth.example.com")
+
     def test_certs_url_construction(self):
         """[HP] certs_url = server_url/realms/{realm}/protocol/openid-connect/certs."""
         settings = KeycloakSettings(

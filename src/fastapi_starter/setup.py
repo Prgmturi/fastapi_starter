@@ -76,7 +76,7 @@ async def init_auth_service(
 ) -> None:
     """Wire auth adapters to ports, pre-fetch JWKS keys, register in app state."""
     jwks_manager = JWKSManager(settings, http_client)
-    issuer = f"{settings.server_url}/realms/{settings.realm}"
+    issuer = settings.issuer
 
     decoder = JWKSTokenDecoder(
         key_provider=jwks_manager,

@@ -250,6 +250,7 @@ APP_ENVIRONMENT=development        # development | staging | production
 APP_LOG_LEVEL=INFO
 DATABASE_PORT=5433
 KEYCLOAK_CLIENT_SECRET=...         # required
+KEYCLOAK_PUBLIC_URL=                # production: the address the browser sees, = KC_HOSTNAME
 SERVER_CORS_ORIGINS=["http://localhost:3000"]
 SERVER_MAX_BODY_SIZE=65536         # bytes; a larger request body gets 413
 ```
