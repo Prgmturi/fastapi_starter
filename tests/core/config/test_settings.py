@@ -48,6 +48,27 @@ class TestAppSettings:
         settings = AppSettings(environment="production")
         assert settings.is_production is True
 
+    @pytest.mark.parametrize("given", ["debug", "Debug", "DEBUG"])
+    def test_log_level_any_case(self, given):
+        """[HP] APP_LOG_LEVEL=debug works like DEBUG."""
+        assert AppSettings(log_level=given).log_level == "DEBUG"
+
+    def test_log_level_read_from_the_environment(self, monkeypatch):
+        """[HP] APP_LOG_LEVEL, as written in .env."""
+        monkeypatch.setenv("APP_LOG_LEVEL", "warning")
+
+        assert AppSettings().log_level == "WARNING"
+
+    @pytest.mark.parametrize("given", ["verbose", "WARN ", "root"])
+    def test_log_level_typo_refused(self, given):
+        """[EC] An unknown level stops the startup.
+
+        WHY: getattr(logging, level, logging.INFO) turned a typo into INFO
+        without a word, and "root" into a Logger object.
+        """
+        with pytest.raises(pydantic.ValidationError, match="DEBUG"):
+            AppSettings(log_level=given)
+
 
 class TestDatabaseSettings:
     """DatabaseSettings — pool defaults.

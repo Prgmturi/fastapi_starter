@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,9 +21,15 @@ class AppSettings(BaseSettings):
         default="development", description="Execution environment"
     )
     debug: bool = Field(default=False, description="Debug mode")
-    log_level: str = Field(
-        default="INFO", description="Logging level ( DEBUG, INFO, WARNING, ERROR)"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
+        default="INFO", description="Logging level, in any case"
     )
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def log_level_in_capitals(cls, value: object) -> object:
+        # APP_LOG_LEVEL=debug is as clear as DEBUG; anything else is refused
+        return value.upper() if isinstance(value, str) else value
 
     @property
     def is_development(self) -> bool:

@@ -76,8 +76,11 @@ def configure_logging(
         )
     ```
     """
-    # Convert string to numeric level
-    level = getattr(logging, log_level.upper(), logging.INFO)
+    # getattr(logging, name) would turn a typo into a default, or "root"
+    # into a Logger: only real level names pass
+    level = logging.getLevelNamesMapping().get(log_level.upper())
+    if level is None:
+        raise ValueError(f"unknown log level {log_level!r}")
 
     # Build processors for the environment
     processors = get_processors(environment, app_name, version)

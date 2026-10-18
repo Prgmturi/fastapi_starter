@@ -247,7 +247,7 @@ Key environment variables:
 
 ```bash
 APP_ENVIRONMENT=development        # development | staging | production
-APP_LOG_LEVEL=INFO
+APP_LOG_LEVEL=INFO                 # DEBUG | INFO | WARNING | ERROR | CRITICAL, any case
 DATABASE_PORT=5433
 KEYCLOAK_CLIENT_SECRET=...         # required
 KEYCLOAK_PUBLIC_URL=                # production: the address the browser sees, = KC_HOSTNAME
