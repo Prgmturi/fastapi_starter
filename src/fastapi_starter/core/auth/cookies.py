@@ -3,8 +3,11 @@
 Security invariants enforced here:
 - httponly=True always (no JS access)
 - secure follows settings (must be True in production)
-- samesite="lax" prevents CSRF on cross-site navigations while allowing OAuth redirects
-- path="/auth" limits cookie scope to auth endpoints only
+- samesite follows settings, "lax" by default: prevents CSRF on cross-site
+  requests while allowing the OAuth redirects
+- path follows settings, "/" by default, because the '__Host-' prefix
+  requires it: the browser sends the cookie to every path of the API, not
+  only to /auth
 - max_age derived from the actual Keycloak refresh_expires_in (0 → session cookie)
 - The '__Host-' prefix in the default name enforces Secure + Path=/ at browser level
   when cookie_secure=True; if disabled in dev the name must not carry the prefix.

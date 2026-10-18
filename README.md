@@ -30,6 +30,12 @@ features/   ← business logic: your endpoints go here
 
 `core/` defines behavior through `Protocol` classes (ports). Concrete implementations (adapters) live alongside them but are only wired together in one place — `setup.py`. This means `AuthService` has no idea what PyJWT is, `JWKSManager` has no idea what SQLAlchemy is, and adding a feature doesn't require touching infrastructure code.
 
+CI checks these rules on every push and pull request, so breaking one fails the build:
+
+- `uv run lint-imports` checks the import contracts in `pyproject.toml` (`[tool.importlinter]`). The layers are `main` → `setup`, `exception_handlers` → `features` → `core`, and a module never imports from a layer above its own. Protocols import no adapter, `AuthService` imports neither PyJWT nor httpx, `core/auth/` never touches the database, and routers don't import httpx. A broken contract prints what to do instead.
+- mypy checks that each adapter still matches its port: `setup.py` stores every adapter in `app.state` through a variable typed as the port.
+- ruff rejects imports inside functions (`PLC0415`).
+
 ```
 src/fastapi_starter/
 ├── main.py                  # App factory + lifespan
@@ -40,6 +46,7 @@ src/fastapi_starter/
 │   ├── config/              # Settings by domain, loaded from .env
 │   ├── database/            # Async engine, session factory, base repository
 │   ├── logging/             # structlog config + request logging middleware
+│   ├── body_limit.py        # Request body over SERVER_MAX_BODY_SIZE → 413
 │   ├── error_middleware.py  # Unexpected exceptions → 500, inside the middleware stack
 │   ├── exceptions.py        # Domain exception hierarchy
 │   ├── problem_details.py   # RFC 9457 error body, also declared in OpenAPI
@@ -57,7 +64,7 @@ src/fastapi_starter/
 ```bash
 # 1. Clone
 git clone https://github.com/Prgmturi/fastapi_starter.git
-cd fastapi-starter
+cd fastapi_starter
 
 # 2. Configure — three .env files, one per stack.
 # Docker Compose reads .env from the directory of each compose file,
