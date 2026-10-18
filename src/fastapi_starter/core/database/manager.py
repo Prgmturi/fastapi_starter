@@ -5,13 +5,8 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase
 
 from fastapi_starter.core.config.database import DatabaseSettings
-
-
-class Base(DeclarativeBase):
-    """Base class for SQLAlchemy models."""
 
 
 class DatabaseManager:

@@ -224,7 +224,7 @@ uv run alembic upgrade head
 uv run alembic downgrade -1
 ```
 
-Define models by subclassing `Base` from `core/database/manager.py`. Import them in `alembic/env.py` before running autogenerate — if you forget, `--autogenerate` aborts with an explanation instead of emitting a migration that drops every table in the database.
+Define models by subclassing `Base` from `core/database/base.py`. Import them in `alembic/env.py` before running autogenerate — if you forget, `--autogenerate` aborts with an explanation instead of emitting a migration that drops every table in the database.
 
 ## Configuration reference
 

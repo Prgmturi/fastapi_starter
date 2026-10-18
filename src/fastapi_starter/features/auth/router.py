@@ -9,7 +9,6 @@ from fastapi_starter.core.auth.cookies import (
     set_refresh_cookie,
 )
 from fastapi_starter.core.auth.origin import require_allowed_origin
-from fastapi_starter.core.auth.schemas import AccessTokenResponse
 from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.core.exceptions import (
     ExternalServiceError,
@@ -18,6 +17,7 @@ from fastapi_starter.core.exceptions import (
 )
 from fastapi_starter.core.logging import get_logger
 from fastapi_starter.features.auth.schemas import (
+    AccessTokenResponse,
     AuthUrlResponse,
     MessageResponse,
     TokenRequest,

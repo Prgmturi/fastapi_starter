@@ -6,7 +6,7 @@ top, like any other module. pytest does not want conftest.py imported.
 
 from sqlalchemy import Column, Integer, String
 
-from fastapi_starter.core.database.manager import Base
+from fastapi_starter.core.database.base import Base
 from fastapi_starter.core.database.repository import BaseRepository
 
 
