@@ -3,7 +3,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fastapi_starter.core.database.manager import Base
+from fastapi_starter.core.database.base import Base
 
 
 class BaseRepository[ModelT: Base]:

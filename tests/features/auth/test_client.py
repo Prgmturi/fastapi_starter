@@ -197,21 +197,6 @@ class TestExchangeCode:
                 redirect_uri="http://test",
             )
 
-    async def test_keycloak_unreachable_raises_external_service_error(
-        self,
-        keycloak_client,
-        mock_http_client,
-    ):
-        """[EC] httpx.HTTPError -> ExternalServiceError('Keycloak')."""
-        mock_http_client.post.side_effect = httpx.ConnectError("connection refused")
-
-        with pytest.raises(ExternalServiceError):
-            await keycloak_client.exchange_code(
-                code="code",
-                code_verifier="v",
-                redirect_uri="http://test",
-            )
-
     async def test_unexpected_error_raises_external_service_error(
         self,
         keycloak_client,
@@ -273,23 +258,13 @@ class TestRefreshToken:
         with pytest.raises(UnauthorizedError, match="Token is not active"):
             await keycloak_client.refresh_token("expired-rt")
 
-    async def test_keycloak_unreachable_raises_external_service_error(
-        self,
-        keycloak_client,
-        mock_http_client,
-    ):
-        """[EC] httpx.HTTPError -> ExternalServiceError."""
-        mock_http_client.post.side_effect = httpx.ConnectError("timeout")
-
-        with pytest.raises(ExternalServiceError):
-            await keycloak_client.refresh_token("rt")
-
 
 class TestLogout:
     """KeycloakClient.logout() — token revocation.
 
-    WHY: Logout has special handling: 204=success, 400=already revoked (ok).
-    Non-standard status codes are logged but not raised.
+    WHY: 204 is a success, and so is 400: the token was already invalid.
+    Any other answer, like a network error, raises ExternalServiceError
+    (TestErrorContract); the router logs it and clears the cookie anyway.
     """
 
     async def test_successful_logout_204(self, keycloak_client, mock_http_client):
@@ -306,34 +281,79 @@ class TestLogout:
 
         await keycloak_client.logout("already-revoked-rt")  # Should not raise
 
-    async def test_unexpected_status_logged_no_error(
-        self,
-        keycloak_client,
-        mock_http_client,
+
+# The OAuthProvider calls that reach Keycloak, by name.
+KEYCLOAK_CALLS = {
+    "exchange_code": lambda client: client.exchange_code(
+        code="code", code_verifier="verifier", redirect_uri="http://test"
+    ),
+    "refresh_token": lambda client: client.refresh_token("rt"),
+    "logout": lambda client: client.logout("rt"),
+}
+TOKEN_CALLS = {name: call for name, call in KEYCLOAK_CALLS.items() if name != "logout"}
+
+
+# What the network can answer instead of Keycloak's normal reply.
+def unreachable(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectError("All connection attempts failed", request=request)
+
+
+def times_out(request: httpx.Request) -> httpx.Response:
+    raise httpx.ReadTimeout("timed out", request=request)
+
+
+def server_error(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(500, text="Internal Server Error")
+
+
+def web_page(request: httpx.Request) -> httpx.Response:
+    """A proxy, or a wrong URL, can answer 200 with a web page."""
+    return httpx.Response(200, html="<html>Sign in</html>")
+
+
+def json_without_tokens(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(200, json={"token_type": "Bearer"})
+
+
+class TestErrorContract:
+    """The errors the OAuthProvider port promises, when Keycloak fails.
+
+    WHY: callers catch only the two exceptions the port names:
+    UnauthorizedError when Keycloak rejects the code or the refresh token,
+    ExternalServiceError when it cannot answer properly. The logout route
+    relies on them to clear the cookie whatever happens. Before, logout
+    returned as if the token had been revoked when Keycloak answered 500,
+    and the 502 of /auth/token showed the client httpx's own text, with
+    Keycloak's internal URL.
+
+    The network is an httpx.MockTransport: real requests and responses,
+    so raise_for_status() and json() behave as in production.
+    """
+
+    @pytest.mark.parametrize("call", KEYCLOAK_CALLS.values(), ids=list(KEYCLOAK_CALLS))
+    @pytest.mark.parametrize("network", [unreachable, times_out, server_error])
+    async def test_keycloak_failure_raises_external_service_error(
+        self, keycloak_settings, call, network
     ):
-        """[EC] Keycloak returns 500 -> logged, no exception raised.
+        """[EC] Network error or 5xx -> ExternalServiceError, nothing else."""
+        async with httpx.AsyncClient(transport=httpx.MockTransport(network)) as http:
+            with pytest.raises(ExternalServiceError) as exc_info:
+                await call(KeycloakClient(keycloak_settings, http))
 
-        WHY: Logout is best-effort. We do not want to show an error
-        to the user if Keycloak has trouble during logout.
-        """
-        mock_http_client.post.return_value = _mock_response(500, text="Internal Error")
+        # The message is the detail the client reads: no library text, no URL
+        assert exc_info.value.message == "Error communicating with Keycloak"
 
-        await keycloak_client.logout("rt")  # Should not raise
-
-    async def test_keycloak_unreachable_raises_external_service_error(
-        self,
-        keycloak_client,
-        mock_http_client,
+    @pytest.mark.parametrize("call", TOKEN_CALLS.values(), ids=list(TOKEN_CALLS))
+    @pytest.mark.parametrize("network", [web_page, json_without_tokens])
+    async def test_answer_without_tokens_raises_external_service_error(
+        self, keycloak_settings, call, network
     ):
-        """[EC] httpx.HTTPError -> ExternalServiceError.
+        """[EC] 200 whose body is not a token set -> ExternalServiceError."""
+        async with httpx.AsyncClient(transport=httpx.MockTransport(network)) as http:
+            with pytest.raises(ExternalServiceError) as exc_info:
+                await call(KeycloakClient(keycloak_settings, http))
 
-        WHY: Unlike status code errors, network errors DO raise,
-        because the client needs to know the request did not reach Keycloak.
-        """
-        mock_http_client.post.side_effect = httpx.ConnectError("refused")
-
-        with pytest.raises(ExternalServiceError):
-            await keycloak_client.logout("rt")
+        assert exc_info.value.message == "Error communicating with Keycloak"
 
 
 class TestOAuthProviderProtocol:

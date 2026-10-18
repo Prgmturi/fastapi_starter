@@ -102,7 +102,8 @@ class KeycloakClient:
 
         Raises:
             UnauthorizedError: If code is invalid or expired
-            ExternalServiceError: If Keycloak is unreachable
+            ExternalServiceError: If Keycloak is unreachable or answers in an
+                unexpected way
         """
         data = {
             "grant_type": "authorization_code",
@@ -129,7 +130,8 @@ class KeycloakClient:
 
         Raises:
             UnauthorizedError: If refresh token is invalid or expired
-            ExternalServiceError: If Keycloak is unreachable
+            ExternalServiceError: If Keycloak is unreachable or answers in an
+                unexpected way
         """
         data = {
             "grant_type": "refresh_token",
@@ -148,7 +150,8 @@ class KeycloakClient:
             refresh_token: Refresh token to revoke
 
         Raises:
-            ExternalServiceError: If Keycloak is unreachable
+            ExternalServiceError: If Keycloak is unreachable or answers with
+                an unexpected status
         """
         data = {
             "client_id": self._settings.client_id,
@@ -158,21 +161,20 @@ class KeycloakClient:
 
         try:
             response = await self._client.post(self.logout_url, data=data)
-
-            # 204 = success, 400 = token already invalid (ok)
-            if response.status_code not in (200, 204, 400):
-                logger.warning(
-                    "logout_failed",
-                    status_code=response.status_code,
-                    response=response.text,
-                )
-                return
-
-            logger.info("user_logged_out")
-
         except httpx.HTTPError as e:
             logger.error("logout_request_failed", error=str(e))
-            raise ExternalServiceError("Keycloak", str(e)) from e
+            raise ExternalServiceError("Keycloak") from e
+
+        # 204 = success, 400 = token already invalid (ok)
+        if response.status_code not in (200, 204, 400):
+            logger.warning(
+                "logout_failed",
+                status_code=response.status_code,
+                response=response.text,
+            )
+            raise ExternalServiceError("Keycloak")
+
+        logger.info("user_logged_out")
 
     async def _token_request(
         self,
@@ -191,7 +193,8 @@ class KeycloakClient:
 
         Raises:
             UnauthorizedError: If request fails with 400/401
-            ExternalServiceError: If Keycloak is unreachable
+            ExternalServiceError: If Keycloak is unreachable or answers in an
+                unexpected way
         """
         try:
             response = await self._client.post(self.token_url, data=data)
@@ -230,8 +233,10 @@ class KeycloakClient:
         except (UnauthorizedError, ExternalServiceError):
             raise
         except httpx.HTTPError as e:
+            # The cause goes to the log only. The message becomes the detail
+            # of the 502, and httpx's text names Keycloak's internal URL.
             logger.error("token_request_failed", operation=operation, error=str(e))
-            raise ExternalServiceError("Keycloak", str(e)) from e
+            raise ExternalServiceError("Keycloak") from e
         except Exception as e:
             logger.error("token_request_unexpected", operation=operation, error=str(e))
-            raise ExternalServiceError("Keycloak", f"Unexpected error: {e}") from e
+            raise ExternalServiceError("Keycloak") from e

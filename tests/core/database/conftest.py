@@ -3,29 +3,8 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from sqlalchemy import Column, Integer, String
 
-from fastapi_starter.core.database.manager import Base
-from fastapi_starter.core.database.repository import BaseRepository
-
-# ---------------------------------------------------------------------------
-# Inline test model and repository (never leaves test scope)
-# ---------------------------------------------------------------------------
-
-
-class FakeModel(Base):
-    """Minimal SQLAlchemy model for testing BaseRepository."""
-
-    __tablename__ = "fake_model"
-    id = Column(Integer, primary_key=True)
-    name = Column(String)
-
-
-class FakeRepository(BaseRepository[FakeModel]):
-    """Concrete subclass for testing BaseRepository CRUD."""
-
-    model = FakeModel
-
+from tests.core.database.fakes import FakeRepository
 
 # ---------------------------------------------------------------------------
 # Fixtures

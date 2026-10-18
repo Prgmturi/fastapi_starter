@@ -21,6 +21,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "import-linter>=2.15",
     "mypy>=1.19.1",
     "pre-commit>=4.6.0",
     "pytest>=9.0.3",
@@ -55,6 +56,7 @@ select = [
     "UP",     # pyupgrade 
     "B",      # flake8-bugbear 
     "SIM",    # flake8-simplify
+    "PLC0415", # imports at the top of the module, never inside a function
 ]
 
 [tool.ruff.lint.isort]
@@ -77,6 +79,75 @@ module = [
     "asyncpg.*",
 ]
 ignore_missing_imports = true
+
+
+# =============================================================================
+# IMPORT-LINTER - Architecture rules, checked in CI with: uv run lint-imports
+# =============================================================================
+[tool.importlinter]
+root_package = "fastapi_starter"
+# Lets the contracts below name third-party packages (jwt, httpx, sqlalchemy)
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layers: main -> setup, exception_handlers -> features -> core"
+type = "layers"
+layers = [
+    "fastapi_starter.main",
+    "fastapi_starter.setup | fastapi_starter.exception_handlers",
+    "fastapi_starter.features",
+    "fastapi_starter.core",
+]
+broken_contract_guidance = """
+A module imports from a layer above its own. core is the infrastructure
+features build on, setup.py wires adapters to ports, main.py builds the
+app. Move the shared code down a layer, or have the layer above pass it
+in, as setup.py does with the adapters."""
+
+[[tool.importlinter.contracts]]
+name = "Ports import no adapter"
+type = "forbidden"
+source_modules = ["fastapi_starter.**.protocols"]
+forbidden_modules = [
+    "fastapi_starter.core.auth.extractors",
+    "fastapi_starter.core.auth.jwks",
+    "fastapi_starter.core.auth.jwks_manager",
+    "fastapi_starter.core.auth.service",
+    "fastapi_starter.core.database.manager",
+    "fastapi_starter.features.auth.client",
+]
+broken_contract_guidance = """
+A protocol (port) imports an implementation (adapter). Adapters depend
+on ports, never the other way round: put the types a port needs in a
+schemas module. A new adapter goes in forbidden_modules above."""
+
+[[tool.importlinter.contracts]]
+name = "AuthService knows no JWT or HTTP library"
+type = "forbidden"
+source_modules = ["fastapi_starter.core.auth.service"]
+forbidden_modules = ["jwt", "httpx"]
+broken_contract_guidance = """
+AuthService works only through its ports, TokenDecoder and ClaimExtractor.
+PyJWT belongs in core/auth/jwks.py, httpx in the Keycloak adapters."""
+
+[[tool.importlinter.contracts]]
+name = "Auth knows no database"
+type = "forbidden"
+source_modules = ["fastapi_starter.core.auth"]
+forbidden_modules = ["fastapi_starter.core.database", "sqlalchemy"]
+broken_contract_guidance = """
+Validating a token needs no database. If auth ever needs stored data,
+define a port in core/auth/protocols.py and wire its adapter in setup.py."""
+
+[[tool.importlinter.contracts]]
+name = "Routers reach external services only through ports"
+type = "forbidden"
+source_modules = ["fastapi_starter.features.*.router"]
+forbidden_modules = ["httpx"]
+broken_contract_guidance = """
+A router imports the HTTP client. OAuthProvider promises that its
+adapters raise only UnauthorizedError and ExternalServiceError: catch
+those. An httpx exception reaching a router is a bug in the adapter."""
 
 
 # =============================================================================

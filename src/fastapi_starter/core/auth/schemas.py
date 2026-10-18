@@ -26,17 +26,6 @@ class TokenResponse(BaseModel):
     )
 
 
-class AccessTokenResponse(BaseModel):
-    """Public API response for token endpoints.
-
-    Excludes refresh_token — that is delivered exclusively via HttpOnly cookie.
-    """
-
-    access_token: str = Field(description="JWT access token")
-    token_type: str = Field(default="Bearer", description="Token type")
-    expires_in: int = Field(description="Access token lifetime in seconds")
-
-
 class RoleEnum(StrEnum):
     SUPERADMIN = "superadmin"
     ADMIN = "admin"

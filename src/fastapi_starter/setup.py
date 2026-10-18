@@ -1,4 +1,10 @@
-"""Composition root helpers — service initialization and shutdown."""
+"""Composition root helpers — service initialization and shutdown.
+
+Every adapter goes into app.state through a variable typed as its port
+(``provider: OAuthProvider = KeycloakClient(...)``). app.state has no
+types and the getters trust what they read, so this assignment is the one
+place where mypy checks that an adapter still matches its port.
+"""
 
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -12,6 +18,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi_starter.core.auth.extractors import KeycloakClaimExtractor
 from fastapi_starter.core.auth.jwks import JWKSTokenDecoder
 from fastapi_starter.core.auth.jwks_manager import JWKSManager
+from fastapi_starter.core.auth.protocols import OAuthProvider, TokenValidator
 from fastapi_starter.core.auth.service import AuthService
 from fastapi_starter.core.body_limit import BodySizeLimitMiddleware
 from fastapi_starter.core.config import (
@@ -20,6 +27,7 @@ from fastapi_starter.core.config import (
     ServerSettings,
 )
 from fastapi_starter.core.database import DatabaseManager
+from fastapi_starter.core.database.protocols import DatabaseProvider
 from fastapi_starter.core.error_middleware import UnhandledExceptionMiddleware
 from fastapi_starter.core.logging import LoggingMiddleware, get_logger
 from fastapi_starter.core.security import SecureHeadersMiddleware
@@ -45,7 +53,10 @@ async def init_database(
         raise
 
     logger.info("database_connected", url=settings.url_safe)
-    app_state.db_manager = db_manager
+    # app.state holds the port, for the routes. The lifespan gets the
+    # manager itself, because disconnect() is not part of the port.
+    provider: DatabaseProvider = db_manager
+    app_state.db_manager = provider
     return db_manager
 
 
@@ -73,7 +84,7 @@ async def init_auth_service(
     extractor = KeycloakClaimExtractor(settings.client_id)
     # JWKSTokenDecoder implements both TokenDecoder and HealthCheckable
     # (health_check delegates to the underlying JWKSManager)
-    auth_service = AuthService(
+    auth_service: TokenValidator = AuthService(
         decoder=decoder, extractor=extractor, health_checker=decoder
     )
 
@@ -96,7 +107,8 @@ async def init_oauth_provider(
     app_state: State, settings: KeycloakSettings, http_client: httpx.AsyncClient
 ) -> None:
     """Initialize OAuth provider for token operations."""
-    app_state.oauth_provider = KeycloakClient(settings, http_client)
+    provider: OAuthProvider = KeycloakClient(settings, http_client)
+    app_state.oauth_provider = provider
 
 
 async def shutdown_services(
