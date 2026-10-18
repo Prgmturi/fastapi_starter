@@ -164,6 +164,32 @@ class TestKeycloakSettings:
         )
 
 
+class TestSecrets:
+    """Database password and Keycloak client secret.
+
+    WHY: settings reach logs and tracebacks through repr() and model_dump().
+    As plain strings, both secrets were printed in full.
+    """
+
+    def test_client_secret_not_shown(self):
+        """[SEC] repr, model_dump and JSON hide the client secret."""
+        settings = KeycloakSettings(client_secret="kc-secret-value")
+
+        assert "kc-secret-value" not in repr(settings)
+        assert "kc-secret-value" not in str(settings.model_dump())
+        assert "kc-secret-value" not in settings.model_dump_json()
+        assert settings.client_secret.get_secret_value() == "kc-secret-value"
+
+    def test_database_password_not_shown(self):
+        """[SEC] The password field hides its value in repr and dumps."""
+        settings = DatabaseSettings(password="db-secret-value")
+
+        assert "db-secret-value" not in repr(settings.password)
+        assert "db-secret-value" not in str(settings.model_dump()["password"])
+        assert settings.model_dump(mode="json")["password"] == "**********"
+        assert settings.password.get_secret_value() == "db-secret-value"
+
+
 class TestServerSettings:
     """ServerSettings — server config and trusted hosts.
 

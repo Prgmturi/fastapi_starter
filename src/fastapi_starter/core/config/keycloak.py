@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import Field, computed_field, model_validator
+from pydantic import Field, SecretStr, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,8 +32,10 @@ class KeycloakSettings(BaseSettings):
         default="fastapi-backend",
         description="Application Client ID",
     )
-    client_secret: str = Field(
-        default="",
+    # SecretStr: repr() and model_dump() show stars, get_secret_value() the
+    # secret
+    client_secret: SecretStr = Field(
+        default=SecretStr(""),
         description="Client secret (confidential client)",
     )
     allowed_clients: list[str] = Field(

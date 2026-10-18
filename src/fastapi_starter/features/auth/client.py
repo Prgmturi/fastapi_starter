@@ -108,7 +108,7 @@ class KeycloakClient:
         data = {
             "grant_type": "authorization_code",
             "client_id": self._settings.client_id,
-            "client_secret": self._settings.client_secret,
+            "client_secret": self._settings.client_secret.get_secret_value(),
             "code": code,
             "code_verifier": code_verifier,
             "redirect_uri": redirect_uri,
@@ -136,7 +136,7 @@ class KeycloakClient:
         data = {
             "grant_type": "refresh_token",
             "client_id": self._settings.client_id,
-            "client_secret": self._settings.client_secret,
+            "client_secret": self._settings.client_secret.get_secret_value(),
             "refresh_token": refresh_token,
         }
 
@@ -155,7 +155,7 @@ class KeycloakClient:
         """
         data = {
             "client_id": self._settings.client_id,
-            "client_secret": self._settings.client_secret,
+            "client_secret": self._settings.client_secret.get_secret_value(),
             "refresh_token": refresh_token,
         }
 

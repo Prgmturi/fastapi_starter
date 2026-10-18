@@ -1,4 +1,4 @@
-from pydantic import Field, computed_field
+from pydantic import Field, SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,8 +30,10 @@ class DatabaseSettings(BaseSettings):
         default="postgres",
         description="Database username",
     )
-    password: str = Field(
-        default="postgres",
+    # SecretStr: repr() and model_dump() show stars, get_secret_value() the
+    # password
+    password: SecretStr = Field(
+        default=SecretStr("postgres"),
         description="Database password",
     )
 
@@ -61,7 +63,7 @@ class DatabaseSettings(BaseSettings):
     @property
     def url(self) -> str:
         return (
-            f"{self.driver}://{self.user}:{self.password}"
+            f"{self.driver}://{self.user}:{self.password.get_secret_value()}"
             f"@{self.host}:{self.port}/{self.name}"
         )
 
