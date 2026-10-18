@@ -95,11 +95,14 @@ EXPOSE 8000
 # HEALTHCHECK — Docker controlla periodicamente che l'app risponda.
 # Se fallisce N volte consecutive, il container è marcato "unhealthy"
 # e docker-compose / Traefik lo toglie dalla rotazione.
-# Usiamo Python stdlib (urllib) perché curl/wget non sono in slim.
+# The probe is src/fastapi_starter/healthcheck.py (stdlib urllib: no curl
+# or wget in slim). It sends the first SERVER_TRUSTED_HOSTS entry as Host:
+# with Host: localhost, production trusted hosts answered 400 and a working
+# container was marked unhealthy. Port: SERVER_PORT, 8000 like the CMD.
 # --start-period=10s: aspetta 10s prima di iniziare i check
 #   (il lifespan startup — db connect, JWKS fetch — richiede tempo).
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')" || exit 1
+    CMD ["python", "-m", "fastapi_starter.healthcheck"]
 
 # ENTRYPOINT fissa il comando base — non sostituibile a runtime.
 # CMD fornisce gli argomenti di default — sovrascrivibili.
