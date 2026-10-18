@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from fastapi_starter.core.config.database import DatabaseSettings
+from fastapi_starter.core.database.url import database_url
 
 
 class DatabaseManager:
@@ -53,7 +54,7 @@ class DatabaseManager:
             return  # Already connected
 
         self._engine = create_async_engine(
-            self._settings.url,
+            database_url(self._settings),
             pool_size=self._settings.pool_size,
             max_overflow=self._settings.pool_max_overflow,
             pool_timeout=self._settings.pool_timeout,

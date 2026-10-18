@@ -12,7 +12,7 @@ failures properly clean up already-initialized resources.
 import json
 from collections.abc import AsyncGenerator
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -96,6 +96,26 @@ class TestInitDatabase:
             await init_database(state, settings)
 
         mock_manager.disconnect.assert_called_once()
+
+    @patch("fastapi_starter.setup.DatabaseManager")
+    async def test_logs_the_url_without_the_password(
+        self, mock_database_manager, monkeypatch
+    ):
+        """[SEC] database_connected names the database, hides the password.
+
+        WHY a fake logger: module loggers are cached on first use
+        (cache_logger_on_first_use), so capture_logs cannot see them.
+        """
+        mock_database_manager.return_value = AsyncMock()
+        logger = MagicMock()
+        monkeypatch.setattr("fastapi_starter.setup.logger", logger)
+
+        await init_database(State(), DatabaseSettings(password="db-secret-value"))
+
+        logger.info.assert_called_once_with(
+            "database_connected",
+            url="postgresql+asyncpg://postgres:***@localhost:5432/appbase",
+        )
 
 
 class TestCreateKeycloakHttpClient:

@@ -26,7 +26,7 @@ from fastapi_starter.core.config import (
     KeycloakSettings,
     ServerSettings,
 )
-from fastapi_starter.core.database import DatabaseManager
+from fastapi_starter.core.database import DatabaseManager, database_url
 from fastapi_starter.core.database.protocols import DatabaseProvider
 from fastapi_starter.core.error_middleware import UnhandledExceptionMiddleware
 from fastapi_starter.core.logging import LoggingMiddleware, get_logger
@@ -52,7 +52,10 @@ async def init_database(
         await db_manager.disconnect()
         raise
 
-    logger.info("database_connected", url=settings.url_safe)
+    logger.info(
+        "database_connected",
+        url=database_url(settings).render_as_string(hide_password=True),
+    )
     # app.state holds the port, for the routes. The lifespan gets the
     # manager itself, because disconnect() is not part of the port.
     provider: DatabaseProvider = db_manager

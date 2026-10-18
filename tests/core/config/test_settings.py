@@ -11,6 +11,7 @@ computed fields produce correct URLs and security-sensitive fields are masked.
 import pydantic
 import pytest
 
+from fastapi_starter.core.config import Settings
 from fastapi_starter.core.config.app import AppSettings
 from fastapi_starter.core.config.database import DatabaseSettings
 from fastapi_starter.core.config.keycloak import KeycloakSettings
@@ -49,41 +50,10 @@ class TestAppSettings:
 
 
 class TestDatabaseSettings:
-    """DatabaseSettings — URL construction and pool defaults.
+    """DatabaseSettings — pool defaults.
 
-    WHY: The computed url property assembles the connection string.
-    A wrong template = app cannot connect to the database.
+    The URL is built in core/database/url.py (tests/core/database/test_url.py).
     """
-
-    def test_url_construction(self):
-        """[HP] url assembles driver://user:password@host:port/name."""
-        settings = DatabaseSettings(
-            driver="postgresql+asyncpg",
-            host="db-host",
-            port=5432,
-            name="mydb",
-            user="myuser",
-            password="secret",
-        )
-        assert settings.url == "postgresql+asyncpg://myuser:secret@db-host:5432/mydb"
-
-    def test_url_safe_masks_password(self):
-        """[HP] url_safe replaces password with '***'.
-
-        WHY: url_safe is used in logs. Leaking passwords in logs
-        is a security incident.
-        """
-        settings = DatabaseSettings(
-            driver="postgresql+asyncpg",
-            host="db-host",
-            port=5432,
-            name="mydb",
-            user="myuser",
-            password="super-secret-password",
-        )
-        assert "super-secret-password" not in settings.url_safe
-        assert "***" in settings.url_safe
-        assert settings.url_safe == "postgresql+asyncpg://myuser:***@db-host:5432/mydb"
 
     def test_default_pool_settings(self):
         """[HP] Pool defaults are reasonable (pool_size=5, etc.)."""
@@ -168,26 +138,28 @@ class TestSecrets:
     """Database password and Keycloak client secret.
 
     WHY: settings reach logs and tracebacks through repr() and model_dump().
-    As plain strings, both secrets were printed in full.
+    As plain strings, both secrets were printed in full, and the password a
+    second time inside the database URL.
     """
 
-    def test_client_secret_not_shown(self):
-        """[SEC] repr, model_dump and JSON hide the client secret."""
-        settings = KeycloakSettings(client_secret="kc-secret-value")
+    @pytest.fixture
+    def settings(self) -> Settings:
+        return Settings(
+            database=DatabaseSettings(password="db-secret-value"),
+            keycloak=KeycloakSettings(client_secret="kc-secret-value"),
+        )
 
-        assert "kc-secret-value" not in repr(settings)
-        assert "kc-secret-value" not in str(settings.model_dump())
-        assert "kc-secret-value" not in settings.model_dump_json()
-        assert settings.client_secret.get_secret_value() == "kc-secret-value"
+    @pytest.mark.parametrize("secret", ["db-secret-value", "kc-secret-value"])
+    def test_secret_not_in_repr_or_dumps(self, settings, secret):
+        """[SEC] repr, model_dump and JSON of the whole settings hide it."""
+        assert secret not in repr(settings)
+        assert secret not in str(settings.model_dump())
+        assert secret not in settings.model_dump_json()
 
-    def test_database_password_not_shown(self):
-        """[SEC] The password field hides its value in repr and dumps."""
-        settings = DatabaseSettings(password="db-secret-value")
-
-        assert "db-secret-value" not in repr(settings.password)
-        assert "db-secret-value" not in str(settings.model_dump()["password"])
-        assert settings.model_dump(mode="json")["password"] == "**********"
-        assert settings.password.get_secret_value() == "db-secret-value"
+    def test_secrets_readable_on_request(self, settings):
+        """[HP] get_secret_value() gives the value to the code that needs it."""
+        assert settings.database.password.get_secret_value() == "db-secret-value"
+        assert settings.keycloak.client_secret.get_secret_value() == "kc-secret-value"
 
 
 class TestServerSettings:

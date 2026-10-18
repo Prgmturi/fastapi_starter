@@ -32,6 +32,35 @@ def db_manager(db_settings) -> DatabaseManager:
     return DatabaseManager(db_settings)
 
 
+class TestConnectionUrl:
+    """The address the engine connects to, built from the settings.
+
+    WHY: the URL was an f-string, so the password was read as URL syntax.
+    With "p@ss" SQLAlchemy took "ss@localhost" as the host, with
+    "p@ss:w/rd" startup failed on the port, and "pa%40ss" silently became
+    "pa@ss".
+    """
+
+    @pytest.mark.parametrize("password", ["p@ss", "p@ss:w/rd", "pa%40ss"])
+    async def test_password_is_not_read_as_url_syntax(self, password):
+        """[EC] Host, port, database and password reach the engine unchanged."""
+        manager = DatabaseManager(
+            DatabaseSettings(
+                host="db-host", port=5433, name="orders", user="app", password=password
+            )
+        )
+
+        # The engine connects lazily: creating it opens no connection
+        await manager.connect()
+        try:
+            url = manager.engine.url
+        finally:
+            await manager.disconnect()
+
+        assert (url.host, url.port, url.database) == ("db-host", 5433, "orders")
+        assert (url.username, url.password) == ("app", password)
+
+
 class TestConnect:
     """DatabaseManager.connect() — engine and session factory creation.
 

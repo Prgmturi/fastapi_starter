@@ -1,4 +1,4 @@
-from pydantic import Field, SecretStr, computed_field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -58,16 +58,3 @@ class DatabaseSettings(BaseSettings):
         default=False,
         description="Log SQL queries",
     )
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def url(self) -> str:
-        return (
-            f"{self.driver}://{self.user}:{self.password.get_secret_value()}"
-            f"@{self.host}:{self.port}/{self.name}"
-        )
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def url_safe(self) -> str:
-        return f"{self.driver}://{self.user}:***@{self.host}:{self.port}/{self.name}"
