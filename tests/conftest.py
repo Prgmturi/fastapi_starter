@@ -63,6 +63,31 @@ def hermetic_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     get_settings.cache_clear()
 
 
+# A production deploy that passes the production checks (Settings refuses
+# development values when APP_ENVIRONMENT=production).
+PRODUCTION_ENV = {
+    "APP_ENVIRONMENT": "production",
+    "DATABASE_PASSWORD": "db-password-from-the-vault",
+    "KEYCLOAK_PUBLIC_URL": "https://auth.example.com",
+    "KEYCLOAK_CLIENT_SECRET": "client-secret-from-the-vault",
+    "KEYCLOAK_ALLOWED_REDIRECT_URIS": '["https://app.example.com/callback"]',
+    "SERVER_CORS_ORIGINS": '["https://app.example.com"]',
+    "SERVER_TRUSTED_HOSTS": '["api.example.com"]',
+}
+
+
+@pytest.fixture
+def production_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """Export PRODUCTION_ENV, as a real deploy would.
+
+    Runs after hermetic_settings (autouse fixtures come first), so these
+    are the only variables the settings see.
+    """
+    for name, value in PRODUCTION_ENV.items():
+        monkeypatch.setenv(name, value)
+    return PRODUCTION_ENV
+
+
 # ---------------------------------------------------------------------------
 # Application
 # ---------------------------------------------------------------------------

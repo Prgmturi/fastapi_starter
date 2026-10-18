@@ -211,6 +211,113 @@ class TestSecrets:
         assert settings.keycloak.client_secret.get_secret_value() == "kc-secret-value"
 
 
+class TestProductionChecks:
+    """With APP_ENVIRONMENT=production, development values stop the startup.
+
+    WHY: the app started in production with debug on, Keycloak on http, an
+    empty client secret, the password "postgres" and the development
+    trusted hosts. Each change below starts from a valid production
+    environment (production_env) and breaks one thing.
+    """
+
+    def test_valid_production_environment_starts(self, production_env):
+        """[HP] Real values everywhere: no error."""
+        assert Settings().app.environment == "production"
+
+    def test_development_defaults_still_start(self):
+        """[HP] The checks never block development."""
+        assert Settings().app.environment == "development"
+
+    @pytest.mark.parametrize(
+        ("change", "named"),
+        [
+            ({"APP_DEBUG": "true"}, "APP_DEBUG"),
+            ({"KEYCLOAK_PUBLIC_URL": "http://auth.example.com"}, "KEYCLOAK_PUBLIC_URL"),
+            # Unset, the public address is KEYCLOAK_SCHEME://..., http by default
+            ({"KEYCLOAK_PUBLIC_URL": None}, "KEYCLOAK_PUBLIC_URL"),
+            ({"KEYCLOAK_CLIENT_SECRET": ""}, "KEYCLOAK_CLIENT_SECRET"),
+            (
+                {"KEYCLOAK_CLIENT_SECRET": "your-client-secret-here"},
+                "KEYCLOAK_CLIENT_SECRET",
+            ),
+            # __Host- already demands Secure: the check matters for other names
+            (
+                {"KEYCLOAK_COOKIE_NAME": "rt", "KEYCLOAK_COOKIE_SECURE": "false"},
+                "KEYCLOAK_COOKIE_SECURE",
+            ),
+            (
+                {"KEYCLOAK_ALLOWED_REDIRECT_URIS": None},
+                "KEYCLOAK_ALLOWED_REDIRECT_URIS",
+            ),
+            ({"DATABASE_PASSWORD": None}, "DATABASE_PASSWORD"),
+            ({"DATABASE_PASSWORD": "appbase_secret_change_me"}, "DATABASE_PASSWORD"),
+            ({"SERVER_CORS_ORIGINS": '["*"]'}, "SERVER_CORS_ORIGINS"),
+            ({"SERVER_TRUSTED_HOSTS": None}, "SERVER_TRUSTED_HOSTS"),
+            ({"SERVER_TRUSTED_HOSTS": '["*"]'}, "SERVER_TRUSTED_HOSTS"),
+        ],
+        ids=[
+            "debug",
+            "public-url-http",
+            "public-url-unset",
+            "secret-empty",
+            "secret-example",
+            "cookie-not-secure",
+            "redirect-uris-unset",
+            "db-password-default",
+            "db-password-example",
+            "cors-any-origin",
+            "trusted-hosts-local",
+            "trusted-hosts-any",
+        ],
+    )
+    def test_development_value_refused(
+        self, production_env, monkeypatch, change, named
+    ):
+        """[SEC] One development value -> an error that names its variable."""
+        for name, value in change.items():
+            if value is None:
+                monkeypatch.delenv(name)
+            else:
+                monkeypatch.setenv(name, value)
+
+        with pytest.raises(pydantic.ValidationError) as exc_info:
+            Settings()
+
+        assert named in str(exc_info.value)
+
+    def test_every_problem_in_one_error(self, monkeypatch):
+        """[HP] All development values at once -> one error listing them all.
+
+        WHY: one error per restart would turn a deploy into a guessing game.
+        """
+        monkeypatch.setenv("APP_ENVIRONMENT", "production")
+        monkeypatch.setenv("APP_DEBUG", "true")
+
+        with pytest.raises(pydantic.ValidationError) as exc_info:
+            Settings()
+
+        message = str(exc_info.value)
+        for named in (
+            "APP_DEBUG",
+            "KEYCLOAK_PUBLIC_URL",
+            "KEYCLOAK_CLIENT_SECRET",
+            "KEYCLOAK_ALLOWED_REDIRECT_URIS",
+            "DATABASE_PASSWORD",
+            "SERVER_TRUSTED_HOSTS",
+        ):
+            assert named in message
+
+    def test_error_shows_no_secret(self, production_env, monkeypatch):
+        """[SEC] The error names variables, never their values."""
+        monkeypatch.setenv("APP_DEBUG", "true")
+
+        with pytest.raises(pydantic.ValidationError) as exc_info:
+            Settings()
+
+        assert production_env["DATABASE_PASSWORD"] not in str(exc_info.value)
+        assert production_env["KEYCLOAK_CLIENT_SECRET"] not in str(exc_info.value)
+
+
 class TestServerSettings:
     """ServerSettings — server config and trusted hosts.
 

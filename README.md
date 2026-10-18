@@ -257,6 +257,8 @@ SERVER_MAX_BODY_SIZE=65536         # bytes; a larger request body gets 413
 
 `/docs`, `/redoc`, and `/openapi.json` are only available when `APP_ENVIRONMENT=development`.
 
+With `APP_ENVIRONMENT=production` the app refuses to start while a development or example value is left: `APP_DEBUG=true`, Keycloak's public address on http, an empty or example `KEYCLOAK_CLIENT_SECRET`, `KEYCLOAK_COOKIE_SECURE=false`, no `KEYCLOAK_ALLOWED_REDIRECT_URIS`, the default or example `DATABASE_PASSWORD`, `*` in `SERVER_CORS_ORIGINS` or `SERVER_TRUSTED_HOSTS`, or only localhost in `SERVER_TRUSTED_HOSTS`. The error lists every variable to change at once, without their values. The checks are in `core/config/production.py`.
+
 ## Stack
 
 - [FastAPI](https://fastapi.tiangolo.com/)
