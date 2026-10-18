@@ -8,10 +8,13 @@ A wrong URL template means auth silently fails in production. We verify
 computed fields produce correct URLs and security-sensitive fields are masked.
 """
 
+import importlib.metadata
+
 import pydantic
 import pytest
 
 from fastapi_starter.core.config import Settings
+from fastapi_starter.core.config import app as app_module
 from fastapi_starter.core.config.app import AppSettings
 from fastapi_starter.core.config.database import DatabaseSettings
 from fastapi_starter.core.config.keycloak import KeycloakSettings
@@ -29,9 +32,33 @@ class TestAppSettings:
         """[HP] Defaults are development-friendly."""
         settings = AppSettings()
         assert settings.name == "fastapi_starter"
-        assert settings.version == "0.1.0"
         assert settings.environment == "development"
         assert settings.debug is False
+
+    def test_version_is_the_installed_package(self):
+        """[HP] /health/live and OpenAPI show the version that runs.
+
+        WHY: the default was "0.1.0" in the code and in .env.example, while
+        release-please bumps pyproject.toml: from 0.2.0 on, every release
+        still answered 0.1.0.
+        """
+        assert AppSettings().version == importlib.metadata.version("fastapi_starter")
+
+    def test_version_unknown_without_an_installed_package(self, monkeypatch):
+        """[EC] Source on PYTHONPATH, never installed: "unknown", not a crash."""
+
+        def not_installed(name: str) -> str:
+            raise importlib.metadata.PackageNotFoundError(name)
+
+        monkeypatch.setattr(app_module, "package_version", not_installed)
+
+        assert AppSettings().version == "unknown"
+
+    def test_app_version_still_overrides(self, monkeypatch):
+        """[HP] APP_VERSION, for a build that wants its own label."""
+        monkeypatch.setenv("APP_VERSION", "1.2.3-rc1")
+
+        assert AppSettings().version == "1.2.3-rc1"
 
     def test_is_development_true_in_dev(self):
         """[HP] environment='development' -> is_development=True."""

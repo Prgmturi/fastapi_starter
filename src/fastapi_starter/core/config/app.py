@@ -1,7 +1,18 @@
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def installed_version() -> str:
+    """The installed package's version: pyproject.toml, bumped at each release."""
+    try:
+        return package_version("fastapi_starter")
+    except PackageNotFoundError:
+        # Source on PYTHONPATH, never installed: say so rather than guess
+        return "unknown"
 
 
 class AppSettings(BaseSettings):
@@ -16,7 +27,10 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="fastapi_starter", description="Application name")
-    version: str = Field(default="0.1.0", description="Application version")
+    version: str = Field(
+        default_factory=installed_version,
+        description="Application version. Unset: the installed package's",
+    )
     environment: Literal["development", "staging", "production"] = Field(
         default="development", description="Execution environment"
     )
