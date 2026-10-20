@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0](https://github.com/Prgmturi/fastapi_starter/compare/v0.4.0...v0.5.0) (2026-10-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* refuse development values in production and add a public Keycloak URL ([#38](https://github.com/Prgmturi/fastapi_starter/issues/38))
+
+### Features
+
+* refuse development values in production and add a public Keycloak URL ([#38](https://github.com/Prgmturi/fastapi_starter/issues/38)) ([4ece56a](https://github.com/Prgmturi/fastapi_starter/commit/4ece56a492d229cbcc17c584dbf0f5d5aacb2ada))
+
 ## [0.4.0](https://github.com/Prgmturi/fastapi_starter/compare/v0.3.0...v0.4.0) (2026-10-17)
 
 
