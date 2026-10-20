@@ -356,6 +356,37 @@ class TestErrorContract:
         assert exc_info.value.message == "Error communicating with Keycloak"
 
 
+class TestClientSecretSent:
+    """The client secret in the form posted to Keycloak.
+
+    WHY: the secret is a SecretStr, whose str() is "**********". Handed to
+    httpx as it is, Keycloak would receive the stars and refuse every call,
+    while the tests that mock the response stayed green.
+    """
+
+    @pytest.mark.parametrize("call", KEYCLOAK_CALLS.values(), ids=list(KEYCLOAK_CALLS))
+    async def test_form_carries_the_configured_secret(self, keycloak_settings, call):
+        """[HP] Every call posts client_secret with its real value."""
+        forms = []
+
+        def keycloak(request: httpx.Request) -> httpx.Response:
+            forms.append(parse_qs(request.content.decode()))
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "at",
+                    "refresh_token": "rt",
+                    "token_type": "Bearer",
+                    "expires_in": 300,
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(keycloak)) as http:
+            await call(KeycloakClient(keycloak_settings, http))
+
+        assert forms[0]["client_secret"] == ["test-secret"]
+
+
 class TestOAuthProviderProtocol:
     """Contract test: KeycloakClient satisfies OAuthProvider.
 

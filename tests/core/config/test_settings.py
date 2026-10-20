@@ -8,9 +8,13 @@ A wrong URL template means auth silently fails in production. We verify
 computed fields produce correct URLs and security-sensitive fields are masked.
 """
 
+import importlib.metadata
+
 import pydantic
 import pytest
 
+from fastapi_starter.core.config import Settings
+from fastapi_starter.core.config import app as app_module
 from fastapi_starter.core.config.app import AppSettings
 from fastapi_starter.core.config.database import DatabaseSettings
 from fastapi_starter.core.config.keycloak import KeycloakSettings
@@ -28,9 +32,33 @@ class TestAppSettings:
         """[HP] Defaults are development-friendly."""
         settings = AppSettings()
         assert settings.name == "fastapi_starter"
-        assert settings.version == "0.1.0"
         assert settings.environment == "development"
         assert settings.debug is False
+
+    def test_version_is_the_installed_package(self):
+        """[HP] /health/live and OpenAPI show the version that runs.
+
+        WHY: the default was "0.1.0" in the code and in .env.example, while
+        release-please bumps pyproject.toml: from 0.2.0 on, every release
+        still answered 0.1.0.
+        """
+        assert AppSettings().version == importlib.metadata.version("fastapi_starter")
+
+    def test_version_unknown_without_an_installed_package(self, monkeypatch):
+        """[EC] Source on PYTHONPATH, never installed: "unknown", not a crash."""
+
+        def not_installed(name: str) -> str:
+            raise importlib.metadata.PackageNotFoundError(name)
+
+        monkeypatch.setattr(app_module, "package_version", not_installed)
+
+        assert AppSettings().version == "unknown"
+
+    def test_app_version_still_overrides(self, monkeypatch):
+        """[HP] APP_VERSION, for a build that wants its own label."""
+        monkeypatch.setenv("APP_VERSION", "1.2.3-rc1")
+
+        assert AppSettings().version == "1.2.3-rc1"
 
     def test_is_development_true_in_dev(self):
         """[HP] environment='development' -> is_development=True."""
@@ -47,43 +75,33 @@ class TestAppSettings:
         settings = AppSettings(environment="production")
         assert settings.is_production is True
 
+    @pytest.mark.parametrize("given", ["debug", "Debug", "DEBUG"])
+    def test_log_level_any_case(self, given):
+        """[HP] APP_LOG_LEVEL=debug works like DEBUG."""
+        assert AppSettings(log_level=given).log_level == "DEBUG"
+
+    def test_log_level_read_from_the_environment(self, monkeypatch):
+        """[HP] APP_LOG_LEVEL, as written in .env."""
+        monkeypatch.setenv("APP_LOG_LEVEL", "warning")
+
+        assert AppSettings().log_level == "WARNING"
+
+    @pytest.mark.parametrize("given", ["verbose", "WARN ", "root"])
+    def test_log_level_typo_refused(self, given):
+        """[EC] An unknown level stops the startup.
+
+        WHY: getattr(logging, level, logging.INFO) turned a typo into INFO
+        without a word, and "root" into a Logger object.
+        """
+        with pytest.raises(pydantic.ValidationError, match="DEBUG"):
+            AppSettings(log_level=given)
+
 
 class TestDatabaseSettings:
-    """DatabaseSettings — URL construction and pool defaults.
+    """DatabaseSettings — pool defaults.
 
-    WHY: The computed url property assembles the connection string.
-    A wrong template = app cannot connect to the database.
+    The URL is built in core/database/url.py (tests/core/database/test_url.py).
     """
-
-    def test_url_construction(self):
-        """[HP] url assembles driver://user:password@host:port/name."""
-        settings = DatabaseSettings(
-            driver="postgresql+asyncpg",
-            host="db-host",
-            port=5432,
-            name="mydb",
-            user="myuser",
-            password="secret",
-        )
-        assert settings.url == "postgresql+asyncpg://myuser:secret@db-host:5432/mydb"
-
-    def test_url_safe_masks_password(self):
-        """[HP] url_safe replaces password with '***'.
-
-        WHY: url_safe is used in logs. Leaking passwords in logs
-        is a security incident.
-        """
-        settings = DatabaseSettings(
-            driver="postgresql+asyncpg",
-            host="db-host",
-            port=5432,
-            name="mydb",
-            user="myuser",
-            password="super-secret-password",
-        )
-        assert "super-secret-password" not in settings.url_safe
-        assert "***" in settings.url_safe
-        assert settings.url_safe == "postgresql+asyncpg://myuser:***@db-host:5432/mydb"
 
     def test_default_pool_settings(self):
         """[HP] Pool defaults are reasonable (pool_size=5, etc.)."""
@@ -151,6 +169,55 @@ class TestKeycloakSettings:
             "http://localhost:8080/realms/test-realm/protocol/openid-connect/auth"
         )
 
+    def test_browser_and_issuer_use_the_public_url(self):
+        """[HP] Login redirect and issuer: public. Tokens and keys: internal.
+
+        WHY: in Docker the API reaches Keycloak at keycloak:8080, a name the
+        browser cannot resolve, while Keycloak signs tokens with its public
+        address. With one URL for both, the login redirect pointed the
+        browser at keycloak:8080.
+        """
+        settings = KeycloakSettings(
+            scheme="http",
+            host="keycloak",
+            port=8080,
+            realm="shop",
+            public_url="https://auth.example.com",
+        )
+
+        assert settings.auth_url == (
+            "https://auth.example.com/realms/shop/protocol/openid-connect/auth"
+        )
+        assert settings.issuer == "https://auth.example.com/realms/shop"
+        assert settings.token_url == (
+            "http://keycloak:8080/realms/shop/protocol/openid-connect/token"
+        )
+        assert settings.certs_url == (
+            "http://keycloak:8080/realms/shop/protocol/openid-connect/certs"
+        )
+
+    def test_without_public_url_everything_is_internal(self):
+        """[HP] KEYCLOAK_PUBLIC_URL unset: development does not change."""
+        settings = KeycloakSettings(realm="shop")
+
+        assert settings.issuer == "http://localhost:8080/realms/shop"
+        assert settings.auth_url == (
+            "http://localhost:8080/realms/shop/protocol/openid-connect/auth"
+        )
+
+    def test_public_url_read_from_the_environment(self, monkeypatch):
+        """[HP] KEYCLOAK_PUBLIC_URL, a trailing slash dropped."""
+        monkeypatch.setenv("KEYCLOAK_PUBLIC_URL", "https://auth.example.com/")
+
+        assert KeycloakSettings(realm="shop").issuer == (
+            "https://auth.example.com/realms/shop"
+        )
+
+    def test_public_url_needs_a_scheme(self):
+        """[EC] "auth.example.com" alone would make a relative redirect."""
+        with pytest.raises(pydantic.ValidationError, match="http:// or https://"):
+            KeycloakSettings(public_url="auth.example.com")
+
     def test_certs_url_construction(self):
         """[HP] certs_url = server_url/realms/{realm}/protocol/openid-connect/certs."""
         settings = KeycloakSettings(
@@ -162,6 +229,141 @@ class TestKeycloakSettings:
         assert settings.certs_url == (
             "http://localhost:8080/realms/test-realm/protocol/openid-connect/certs"
         )
+
+
+class TestSecrets:
+    """Database password and Keycloak client secret.
+
+    WHY: settings reach logs and tracebacks through repr() and model_dump().
+    As plain strings, both secrets were printed in full, and the password a
+    second time inside the database URL.
+    """
+
+    @pytest.fixture
+    def settings(self) -> Settings:
+        return Settings(
+            database=DatabaseSettings(password="db-secret-value"),
+            keycloak=KeycloakSettings(client_secret="kc-secret-value"),
+        )
+
+    @pytest.mark.parametrize("secret", ["db-secret-value", "kc-secret-value"])
+    def test_secret_not_in_repr_or_dumps(self, settings, secret):
+        """[SEC] repr, model_dump and JSON of the whole settings hide it."""
+        assert secret not in repr(settings)
+        assert secret not in str(settings.model_dump())
+        assert secret not in settings.model_dump_json()
+
+    def test_secrets_readable_on_request(self, settings):
+        """[HP] get_secret_value() gives the value to the code that needs it."""
+        assert settings.database.password.get_secret_value() == "db-secret-value"
+        assert settings.keycloak.client_secret.get_secret_value() == "kc-secret-value"
+
+
+class TestProductionChecks:
+    """With APP_ENVIRONMENT=production, development values stop the startup.
+
+    WHY: the app started in production with debug on, Keycloak on http, an
+    empty client secret, the password "postgres" and the development
+    trusted hosts. Each change below starts from a valid production
+    environment (production_env) and breaks one thing.
+    """
+
+    def test_valid_production_environment_starts(self, production_env):
+        """[HP] Real values everywhere: no error."""
+        assert Settings().app.environment == "production"
+
+    def test_development_defaults_still_start(self):
+        """[HP] The checks never block development."""
+        assert Settings().app.environment == "development"
+
+    @pytest.mark.parametrize(
+        ("change", "named"),
+        [
+            ({"APP_DEBUG": "true"}, "APP_DEBUG"),
+            ({"KEYCLOAK_PUBLIC_URL": "http://auth.example.com"}, "KEYCLOAK_PUBLIC_URL"),
+            # Unset, the public address is KEYCLOAK_SCHEME://..., http by default
+            ({"KEYCLOAK_PUBLIC_URL": None}, "KEYCLOAK_PUBLIC_URL"),
+            ({"KEYCLOAK_CLIENT_SECRET": ""}, "KEYCLOAK_CLIENT_SECRET"),
+            (
+                {"KEYCLOAK_CLIENT_SECRET": "your-client-secret-here"},
+                "KEYCLOAK_CLIENT_SECRET",
+            ),
+            # __Host- already demands Secure: the check matters for other names
+            (
+                {"KEYCLOAK_COOKIE_NAME": "rt", "KEYCLOAK_COOKIE_SECURE": "false"},
+                "KEYCLOAK_COOKIE_SECURE",
+            ),
+            (
+                {"KEYCLOAK_ALLOWED_REDIRECT_URIS": None},
+                "KEYCLOAK_ALLOWED_REDIRECT_URIS",
+            ),
+            ({"DATABASE_PASSWORD": None}, "DATABASE_PASSWORD"),
+            ({"DATABASE_PASSWORD": "appbase_secret_change_me"}, "DATABASE_PASSWORD"),
+            ({"SERVER_CORS_ORIGINS": '["*"]'}, "SERVER_CORS_ORIGINS"),
+            ({"SERVER_TRUSTED_HOSTS": None}, "SERVER_TRUSTED_HOSTS"),
+            ({"SERVER_TRUSTED_HOSTS": '["*"]'}, "SERVER_TRUSTED_HOSTS"),
+        ],
+        ids=[
+            "debug",
+            "public-url-http",
+            "public-url-unset",
+            "secret-empty",
+            "secret-example",
+            "cookie-not-secure",
+            "redirect-uris-unset",
+            "db-password-default",
+            "db-password-example",
+            "cors-any-origin",
+            "trusted-hosts-local",
+            "trusted-hosts-any",
+        ],
+    )
+    def test_development_value_refused(
+        self, production_env, monkeypatch, change, named
+    ):
+        """[SEC] One development value -> an error that names its variable."""
+        for name, value in change.items():
+            if value is None:
+                monkeypatch.delenv(name)
+            else:
+                monkeypatch.setenv(name, value)
+
+        with pytest.raises(pydantic.ValidationError) as exc_info:
+            Settings()
+
+        assert named in str(exc_info.value)
+
+    def test_every_problem_in_one_error(self, monkeypatch):
+        """[HP] All development values at once -> one error listing them all.
+
+        WHY: one error per restart would turn a deploy into a guessing game.
+        """
+        monkeypatch.setenv("APP_ENVIRONMENT", "production")
+        monkeypatch.setenv("APP_DEBUG", "true")
+
+        with pytest.raises(pydantic.ValidationError) as exc_info:
+            Settings()
+
+        message = str(exc_info.value)
+        for named in (
+            "APP_DEBUG",
+            "KEYCLOAK_PUBLIC_URL",
+            "KEYCLOAK_CLIENT_SECRET",
+            "KEYCLOAK_ALLOWED_REDIRECT_URIS",
+            "DATABASE_PASSWORD",
+            "SERVER_TRUSTED_HOSTS",
+        ):
+            assert named in message
+
+    def test_error_shows_no_secret(self, production_env, monkeypatch):
+        """[SEC] The error names variables, never their values."""
+        monkeypatch.setenv("APP_DEBUG", "true")
+
+        with pytest.raises(pydantic.ValidationError) as exc_info:
+            Settings()
+
+        assert production_env["DATABASE_PASSWORD"] not in str(exc_info.value)
+        assert production_env["KEYCLOAK_CLIENT_SECRET"] not in str(exc_info.value)
 
 
 class TestServerSettings:

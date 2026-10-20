@@ -206,7 +206,7 @@ Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) pr
 
 ## Health checks
 
-- `GET /health/live` answers 200 while the process runs. The Docker `HEALTHCHECK` calls it.
+- `GET /health/live` answers 200 while the process runs. The Docker `HEALTHCHECK` calls it with `python -m fastapi_starter.healthcheck`, which sends the first `SERVER_TRUSTED_HOSTS` entry as `Host` and `SERVER_PORT` as port: the probe passes the trusted-host check that real requests pass.
 - `GET /health/ready` answers 200 when the instance can serve requests and 503 when a check fails. The body is a status report, not a problem document, and gives only the status of each check: `{"status": "unhealthy", "checks": {"database": {"status": "unhealthy"}, "auth": {"status": "healthy"}}}`. The endpoint needs no token, so the cause goes to the logs only, as `readiness_check_failed`. A check that takes more than 2 seconds counts as failed.
 - The auth check does not call Keycloak: it passes while the signing keys are cached. If Keycloak goes down, the instances keep validating tokens with those keys and stay ready.
 
@@ -247,14 +247,17 @@ Key environment variables:
 
 ```bash
 APP_ENVIRONMENT=development        # development | staging | production
-APP_LOG_LEVEL=INFO
+APP_LOG_LEVEL=INFO                 # DEBUG | INFO | WARNING | ERROR | CRITICAL, any case
 DATABASE_PORT=5433
 KEYCLOAK_CLIENT_SECRET=...         # required
+KEYCLOAK_PUBLIC_URL=                # production: the address the browser sees, = KC_HOSTNAME
 SERVER_CORS_ORIGINS=["http://localhost:3000"]
 SERVER_MAX_BODY_SIZE=65536         # bytes; a larger request body gets 413
 ```
 
 `/docs`, `/redoc`, and `/openapi.json` are only available when `APP_ENVIRONMENT=development`.
+
+With `APP_ENVIRONMENT=production` the app refuses to start while a development or example value is left: `APP_DEBUG=true`, Keycloak's public address on http, an empty or example `KEYCLOAK_CLIENT_SECRET`, `KEYCLOAK_COOKIE_SECURE=false`, no `KEYCLOAK_ALLOWED_REDIRECT_URIS`, the default or example `DATABASE_PASSWORD`, `*` in `SERVER_CORS_ORIGINS` or `SERVER_TRUSTED_HOSTS`, or only localhost in `SERVER_TRUSTED_HOSTS`. The error lists every variable to change at once, without their values. The checks are in `core/config/production.py`.
 
 ## Stack
 

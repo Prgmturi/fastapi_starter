@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import Field, computed_field, model_validator
+from pydantic import Field, SecretStr, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +24,15 @@ class KeycloakSettings(BaseSettings):
         default="http",
         description="URL scheme (http or https)",
     )
+    public_url: str = Field(
+        default="",
+        description=(
+            "Keycloak's address as the browser sees it, e.g. "
+            "https://auth.example.com: the login redirect and the token issuer. "
+            "Keys, tokens and logout use scheme://host:port. "
+            "Empty: the same as scheme://host:port."
+        ),
+    )
     realm: str = Field(
         default="fastapi-starter",
         description="Keycloak realm name",
@@ -32,8 +41,10 @@ class KeycloakSettings(BaseSettings):
         default="fastapi-backend",
         description="Application Client ID",
     )
-    client_secret: str = Field(
-        default="",
+    # SecretStr: repr() and model_dump() show stars, get_secret_value() the
+    # secret
+    client_secret: SecretStr = Field(
+        default=SecretStr(""),
         description="Client secret (confidential client)",
     )
     allowed_clients: list[str] = Field(
@@ -97,6 +108,15 @@ class KeycloakSettings(BaseSettings):
         ),
     )
 
+    @field_validator("public_url")
+    @classmethod
+    def public_url_is_absolute(cls, value: str) -> str:
+        # Without a scheme the browser would read the redirect as a path of
+        # the frontend itself
+        if value and not value.startswith(("http://", "https://")):
+            raise ValueError("public_url must start with http:// or https://")
+        return value.rstrip("/")
+
     @model_validator(mode="after")
     def validate_host_prefix_constraints(self) -> "KeycloakSettings":
         if self.cookie_name.startswith("__Host-"):
@@ -121,13 +141,25 @@ class KeycloakSettings(BaseSettings):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
+    def public_server_url(self) -> str:
+        return self.public_url or self.server_url
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def issuer(self) -> str:
+        """The iss claim: Keycloak signs tokens with its public address."""
+        return f"{self.public_server_url}/realms/{self.realm}"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
     def token_url(self) -> str:
         return f"{self.server_url}/realms/{self.realm}/protocol/openid-connect/token"
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def auth_url(self) -> str:
-        return f"{self.server_url}/realms/{self.realm}/protocol/openid-connect/auth"
+        """Where the browser is sent to log in, so the public address."""
+        return f"{self.issuer}/protocol/openid-connect/auth"
 
     @computed_field  # type: ignore[prop-decorator]
     @property

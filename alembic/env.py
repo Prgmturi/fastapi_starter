@@ -7,7 +7,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from fastapi_starter.core.config import get_settings
-from fastapi_starter.core.database import Base
+from fastapi_starter.core.database import Base, database_url
 
 # Alembic Config object
 config = context.config
@@ -52,7 +52,7 @@ def run_migrations_offline() -> None:
 
     Generates SQL script without connecting to database.
     """
-    url = settings.database.url
+    url = database_url(settings.database)
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -77,7 +77,7 @@ async def run_async_migrations() -> None:
     Run migrations in 'online' mode with async engine.
     """
     connectable = create_async_engine(
-        settings.database.url,
+        database_url(settings.database),
         poolclass=pool.NullPool,
     )
 

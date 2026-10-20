@@ -80,21 +80,19 @@ class TestCreateApp:
         assert set(problem["schema"]["required"]) == {"title", "status", "detail"}
         assert "HTTPValidationError" not in schema["components"]["schemas"]
 
-    def test_docs_disabled_in_production(self):
-        app = create_app(Settings(app=AppSettings(environment="production")))
+    def test_docs_disabled_in_production(self, production_env):
+        app = create_app(Settings())
 
         assert app.docs_url is None
         assert app.redoc_url is None
         assert app.openapi_url is None
 
-    def test_without_settings_loads_them_from_environment(self, monkeypatch):
+    def test_without_settings_loads_them_from_environment(self, production_env):
         """[HP] create_app() with no argument is the production path.
 
         WHY: uvicorn --factory calls create_app() with no arguments, so the
         environment must still be read there.
         """
-        monkeypatch.setenv("APP_ENVIRONMENT", "production")
-
         app = create_app()
 
         assert app.state.settings.app.environment == "production"

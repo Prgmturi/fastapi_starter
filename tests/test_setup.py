@@ -12,7 +12,7 @@ failures properly clean up already-initialized resources.
 import json
 from collections.abc import AsyncGenerator
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -97,6 +97,26 @@ class TestInitDatabase:
 
         mock_manager.disconnect.assert_called_once()
 
+    @patch("fastapi_starter.setup.DatabaseManager")
+    async def test_logs_the_url_without_the_password(
+        self, mock_database_manager, monkeypatch
+    ):
+        """[SEC] database_connected names the database, hides the password.
+
+        WHY a fake logger: module loggers are cached on first use
+        (cache_logger_on_first_use), so capture_logs cannot see them.
+        """
+        mock_database_manager.return_value = AsyncMock()
+        logger = MagicMock()
+        monkeypatch.setattr("fastapi_starter.setup.logger", logger)
+
+        await init_database(State(), DatabaseSettings(password="db-secret-value"))
+
+        logger.info.assert_called_once_with(
+            "database_connected",
+            url="postgresql+asyncpg://postgres:***@localhost:5432/appbase",
+        )
+
 
 class TestCreateKeycloakHttpClient:
     """create_keycloak_http_client() — the client shared by Keycloak adapters."""
@@ -175,6 +195,33 @@ class TestInitAuthService:
         _, kwargs = mock_decoder.call_args
         assert kwargs["allowed_clients"] == ["fastapi-backend", "web-frontend"]
         assert kwargs["audience"] == "fastapi-backend"
+
+    @patch("fastapi_starter.setup.AuthService")
+    @patch("fastapi_starter.setup.KeycloakClaimExtractor")
+    @patch("fastapi_starter.setup.JWKSTokenDecoder")
+    @patch("fastapi_starter.setup.JWKSManager")
+    async def test_issuer_is_the_public_url(
+        self,
+        mock_jwks_manager,
+        mock_decoder,
+        mock_extractor,
+        mock_auth_service,
+        http_client,
+    ):
+        """[HP] The decoder expects the iss Keycloak writes: its public address.
+
+        WHY: with the internal address, every token signed by a Keycloak
+        published as https://auth.example.com would be refused with 401.
+        """
+        mock_jwks_manager.return_value = AsyncMock()
+
+        settings = KeycloakSettings(
+            host="keycloak", public_url="https://auth.example.com"
+        )
+        await init_auth_service(State(), settings, http_client)
+
+        _, kwargs = mock_decoder.call_args
+        assert kwargs["issuer"] == "https://auth.example.com/realms/fastapi-starter"
 
     @patch("fastapi_starter.setup.AuthService")
     @patch("fastapi_starter.setup.KeycloakClaimExtractor")

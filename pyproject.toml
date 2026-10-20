@@ -10,9 +10,8 @@ dependencies = [
     "fastapi>=0.128.0",
     "httpx>=0.28.1",
     "pydantic-settings>=2.14.2",
-    "pydantic[email]>=2.12.5",
+    "pydantic>=2.12.5",
     "pyjwt[crypto]>=2.11.0",
-    "python-keycloak>=6.0.0",
     "sqlalchemy>=2.0.45",
     "structlog>=25.5.0",
     "uvicorn[standard]>=0.40.0",
@@ -75,7 +74,6 @@ warn_unused_configs = true
 
 [[tool.mypy.overrides]]
 module = [
-    "keycloak.*",
     "asyncpg.*",
 ]
 ignore_missing_imports = true
@@ -172,7 +170,9 @@ source = ["fastapi_starter"]
 branch = true
 
 [tool.coverage.report]
-fail_under = 95
+# Raised when coverage grows, never lowered. At 99.16% a margin of about one
+# point leaves room for a branch hard to reach, not for an untested module.
+fail_under = 98
 show_missing = true
 skip_covered = true
 exclude_also = [

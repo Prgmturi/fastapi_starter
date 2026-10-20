@@ -7,6 +7,7 @@ from fastapi_starter.core.database.dependencies import (
 from fastapi_starter.core.database.manager import DatabaseManager
 from fastapi_starter.core.database.protocols import DatabaseProvider
 from fastapi_starter.core.database.repository import BaseRepository
+from fastapi_starter.core.database.url import database_url
 
 __all__ = [
     "Base",
@@ -14,6 +15,7 @@ __all__ = [
     "DatabaseManager",
     "DatabaseProvider",
     "DbSession",
+    "database_url",
     "get_db_manager",
     "get_db_session",
 ]
