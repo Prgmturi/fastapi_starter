@@ -17,7 +17,7 @@ A backend template built with FastAPI to learn and apply real architectural patt
 | **Config** | Pydantic Settings, layered by domain (`AppSettings`, `DatabaseSettings`, etc.), loaded from `.env`. |
 | **Logging** | structlog. JSON in production with service metadata, colorized in development. Request IDs on every log line. |
 | **Errors** | One format for every error: RFC 9457 problem details (`application/problem+json`). Domain exceptions (`NotFoundError`, `UnauthorizedError`, ...) with global handlers; no internal details reach the client. |
-| **Testing** | Fully async, no real database or auth server needed. Independent of the local `.env`. CI fails below a coverage threshold. |
+| **Testing** | Fully async. The unit tests need no database or auth server and ignore the local `.env`; the integration tests run on a real Postgres, in CI too. CI fails below a coverage threshold. |
 
 ## Architecture
 
@@ -213,15 +213,26 @@ Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) pr
 ## Running tests
 
 ```bash
-uv run pytest                              # all tests
+uv run pytest                              # all tests but the integration ones
 uv run pytest tests/core/auth/            # a module
 uv run pytest tests/core/auth/test_service.py::TestValidateToken  # one class
 uv run pytest --cov                        # with coverage, as CI runs it
+uv run pytest -m integration               # only the integration tests, on a real Postgres
 ```
 
-Tests are fully async and use `AsyncMock` stubs — no real database or Keycloak instance needed. The root `conftest.py` provides fixtures for the app, HTTP client, mock services, and sample users at different role levels.
+Tests are fully async. Outside `tests/integration/` they use `AsyncMock` stubs — no real database or Keycloak instance needed. The root `conftest.py` provides fixtures for the app, HTTP client, mock services, and sample users at different role levels.
 
 Tests never read your local `.env` or exported `APP_*`, `KEYCLOAK_*` variables: an autouse fixture in `conftest.py` switches both off. A test that needs specific settings builds them and passes them to `create_app(settings)`. CI runs the suite twice, the second time with a production-like `.env`, and fails if coverage drops below `fail_under` in `pyproject.toml`.
+
+### Integration tests
+
+The tests in `tests/integration/` run on a real Postgres, for what a mock cannot show, such as a commit that the database refuses. `uv run pytest` leaves them out, even when you name their file; add `-m integration`, which runs only them. They read `TEST_DATABASE_*` (exported or in `.env`, see `.env.example`) and no other setting, and they refuse a database whose name does not end in `_test`, because they create and drop tables in it. Create that database once, in the app database container:
+
+```bash
+docker exec app-db createdb -U appbase appbase_test   # -U: APP_DB_USER in docker/.env
+```
+
+CI runs them in a job of their own, with its own Postgres. They do not count towards the coverage threshold.
 
 ## Database migrations
 

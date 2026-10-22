@@ -155,7 +155,12 @@ those. An httpx exception reaching a router is a bug in the adapter."""
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-addopts = ["-v", "--tb=short"]
+# The integration tests need a real Postgres, so a plain "pytest" leaves them
+# out. "pytest -m integration" runs only them: the last -m wins.
+addopts = ["-v", "--tb=short", "-m", "not integration"]
+markers = [
+    "integration: needs a real Postgres (TEST_DATABASE_*); every test in tests/integration/",
+]
 # pytest 9: a typo in a marker or in this section becomes an error instead
 # of a warning (strict_markers, strict_config). Also enables strict_xfail
 # and strict_parametrization_ids.
