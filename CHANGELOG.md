@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0](https://github.com/Prgmturi/fastapi_starter/compare/v0.5.0...v0.6.0) (2026-10-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* BaseRepository.get_all() is replaced by get_page(), and DatabaseManager.get_session() is removed.
+
+### Features
+
+* harden the database lifecycle and check migrations in CI ([#42](https://github.com/Prgmturi/fastapi_starter/issues/42)) ([9fac5ee](https://github.com/Prgmturi/fastapi_starter/commit/9fac5ee4f4960c68b4710484bfbadfc932dcba65))
+
 ## [0.5.0](https://github.com/Prgmturi/fastapi_starter/compare/v0.4.0...v0.5.0) (2026-10-20)
 
 
