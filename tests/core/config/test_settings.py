@@ -111,6 +111,30 @@ class TestDatabaseSettings:
         assert settings.pool_timeout == 5
         assert settings.pool_recycle == 1800
 
+    def test_default_timeouts(self):
+        """[HP] 5 s to connect, 30 s per query.
+
+        WHY: asyncpg has no query limit and waits 60 s for a connection.
+        """
+        settings = DatabaseSettings()
+        assert settings.connect_timeout == 5
+        assert settings.command_timeout == 30
+
+    def test_timeouts_read_from_the_environment(self, monkeypatch):
+        """[HP] DATABASE_CONNECT_TIMEOUT and DATABASE_COMMAND_TIMEOUT."""
+        monkeypatch.setenv("DATABASE_CONNECT_TIMEOUT", "2.5")
+        monkeypatch.setenv("DATABASE_COMMAND_TIMEOUT", "120")
+
+        settings = DatabaseSettings()
+
+        assert (settings.connect_timeout, settings.command_timeout) == (2.5, 120)
+
+    @pytest.mark.parametrize("field", ["connect_timeout", "command_timeout"])
+    def test_timeouts_must_be_positive(self, field):
+        """[EC] 0 would make every connection or query fail at once."""
+        with pytest.raises(pydantic.ValidationError, match=field):
+            DatabaseSettings(**{field: 0})
+
 
 class TestKeycloakSettings:
     """KeycloakSettings — OIDC endpoint URLs and which tokens are accepted.

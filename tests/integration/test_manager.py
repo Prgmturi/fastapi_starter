@@ -7,6 +7,8 @@ WHY: a restart or a failover of Postgres closes every connection in the
 pool, and the app finds out only when it uses one.
 """
 
+import time
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -14,6 +16,7 @@ from sqlalchemy.pool import NullPool
 
 from fastapi_starter.core.database import DbSession, database_url
 from tests.integration.settings import IntegrationDatabaseSettings
+from tests.test_exception_handlers import assert_problem
 
 
 async def close_other_connections(settings: IntegrationDatabaseSettings) -> int:
@@ -37,6 +40,22 @@ async def close_other_connections(settings: IntegrationDatabaseSettings) -> int:
         count = closed.all().count(True)
     await engine.dispose()
     return count
+
+
+async def running_queries(settings: IntegrationDatabaseSettings, marker: str) -> int:
+    """How many queries with marker in their text still run on the server."""
+    engine = create_async_engine(database_url(settings), poolclass=NullPool)
+    async with engine.connect() as connection:
+        running = await connection.scalar(
+            text(
+                "SELECT count(*) FROM pg_stat_activity "
+                "WHERE datname = current_database() AND state = 'active' "
+                "AND query LIKE :pattern AND pid <> pg_backend_pid()"
+            ),
+            {"pattern": f"%{marker}%"},
+        )
+    await engine.dispose()
+    return running
 
 
 class TestServerClosedConnections:
@@ -68,3 +87,41 @@ class TestServerClosedConnections:
 
         assert response.status_code == 200
         assert response.json() == {"value": 1}
+
+
+class TestQueryTimeout:
+    """A query that runs longer than command_timeout.
+
+    WHY: without a limit a slow query holds its connection, and its
+    request, for as long as it runs. A few of them empty the pool.
+    """
+
+    @pytest.fixture
+    def database_settings(self, database_settings):
+        """A one-second limit, so the test stays short."""
+        return database_settings.model_copy(update={"command_timeout": 1})
+
+    @pytest.fixture
+    def slow_app(self, app):
+        """The test app plus GET /slow, whose query takes 3 seconds."""
+
+        @app.get("/slow")
+        async def slow(session: DbSession) -> dict[str, str]:
+            await session.execute(text("SELECT pg_sleep(3), 'slow-route'"))
+            return {"status": "done"}
+
+        return app
+
+    async def test_slow_query_is_stopped_at_the_limit(
+        self, slow_app, client, database_settings
+    ):
+        """[EC] 3 s query, 1 s limit -> 500 after about a second, and the
+        query no longer runs on the server either.
+        """
+        started = time.monotonic()
+
+        response = await client.get("/slow")
+
+        assert_problem(response, 500)
+        assert time.monotonic() - started < 2.5
+        assert await running_queries(database_settings, "slow-route") == 0

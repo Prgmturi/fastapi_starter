@@ -54,6 +54,19 @@ class DatabaseSettings(BaseSettings):
         default=1800,
         description="Recycle connections older than this (seconds)",
     )
+
+    # Timeouts, for the app's engine only: the one in alembic/env.py has
+    # none, so a long migration is not cut short.
+    connect_timeout: float = Field(
+        default=5.0,
+        gt=0,
+        description="Seconds to open a connection, login included",
+    )
+    command_timeout: float = Field(
+        default=30.0,
+        gt=0,
+        description="Seconds a query may run; then Postgres cancels it",
+    )
     echo: bool = Field(
         default=False,
         description="Log SQL queries",

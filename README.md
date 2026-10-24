@@ -260,6 +260,7 @@ Key environment variables:
 APP_ENVIRONMENT=development        # development | staging | production
 APP_LOG_LEVEL=INFO                 # DEBUG | INFO | WARNING | ERROR | CRITICAL, any case
 DATABASE_PORT=5433
+DATABASE_COMMAND_TIMEOUT=30        # seconds per query; a slower one answers 500
 KEYCLOAK_CLIENT_SECRET=...         # required
 KEYCLOAK_PUBLIC_URL=                # production: the address the browser sees, = KC_HOSTNAME
 SERVER_CORS_ORIGINS=["http://localhost:3000"]

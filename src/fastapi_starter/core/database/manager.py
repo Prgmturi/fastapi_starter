@@ -65,6 +65,13 @@ class DatabaseManager:
             pool_timeout=self._settings.pool_timeout,
             pool_recycle=self._settings.pool_recycle,
             echo=self._settings.echo,
+            # asyncpg's limits. Without them it waits 60 s for a connection
+            # and lets a query run forever. A query over the limit raises
+            # TimeoutError, and asyncpg cancels it on the server too.
+            connect_args={
+                "timeout": self._settings.connect_timeout,
+                "command_timeout": self._settings.command_timeout,
+            },
         )
 
         self._session_factory = async_sessionmaker(
