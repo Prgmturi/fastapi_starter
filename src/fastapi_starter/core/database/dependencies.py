@@ -45,5 +45,7 @@ async def get_db_session(
 # scope ("request") it would run after the response has left, and the client
 # would get 201 for data that was never saved.
 # The session is closed by then: background tasks and streaming responses
-# must open their own.
+# must open their own, from the provider (get_db_manager):
+#     async with db_manager.session_factory.begin() as session:
+#         ...  # commits at the end, rolls back on an exception
 DbSession = Annotated[AsyncSession, Depends(get_db_session, scope="function")]

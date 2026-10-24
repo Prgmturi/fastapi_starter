@@ -6,10 +6,16 @@ from fastapi_starter.core.database.dependencies import (
 )
 from fastapi_starter.core.database.manager import DatabaseManager
 from fastapi_starter.core.database.protocols import DatabaseProvider
-from fastapi_starter.core.database.repository import BaseRepository
+from fastapi_starter.core.database.repository import (
+    DEFAULT_PAGE_SIZE,
+    MAX_PAGE_SIZE,
+    BaseRepository,
+)
 from fastapi_starter.core.database.url import database_url
 
 __all__ = [
+    "DEFAULT_PAGE_SIZE",
+    "MAX_PAGE_SIZE",
     "Base",
     "BaseRepository",
     "DatabaseManager",

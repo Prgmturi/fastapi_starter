@@ -31,7 +31,7 @@ class DatabaseManager:
 
     @property
     def engine(self) -> AsyncEngine:
-        """Get the database engine. Creates it if not exists."""
+        """The database engine. RuntimeError before connect()."""
         if self._engine is None:
             raise RuntimeError("Database not connected. Call connect() first.")
         return self._engine
@@ -92,14 +92,6 @@ class DatabaseManager:
             await self._engine.dispose()
             self._engine = None
             self._session_factory = None
-
-    async def get_session(self) -> AsyncSession:
-        """
-        Get a new database session.
-
-        Note: Prefer using the dependency injection via DbSession.
-        """
-        return self.session_factory()
 
     async def health_check(self) -> bool:
         """

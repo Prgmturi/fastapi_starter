@@ -234,6 +234,59 @@ docker exec app-db createdb -U appbase appbase_test   # -U: APP_DB_USER in docke
 
 CI runs them in a job of their own, with its own Postgres. They do not count towards the coverage threshold.
 
+## Database access
+
+`DbSession` gives a route one session and one transaction: it commits when the route returns, before the response is sent, and rolls back when anything fails, so a failed commit answers 500, never 201. Repositories extend `BaseRepository`, which has `get_by_id`, `get_page`, `create` and `delete`:
+
+```python
+from typing import Annotated
+
+from fastapi import Query
+
+from fastapi_starter.core.database import (
+    DEFAULT_PAGE_SIZE,
+    MAX_PAGE_SIZE,
+    BaseRepository,
+    DbSession,
+)
+
+
+class ProductRepository(BaseRepository[Product]):
+    model = Product
+
+
+@router.get("/", response_model=list[ProductOut])
+async def list_products(
+    db: DbSession,
+    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    return await ProductRepository(db).get_page(limit=limit, offset=offset)
+```
+
+`get_page` sorts by primary key, so a row updated between two pages is neither skipped nor shown twice. It refuses a `limit` above `MAX_PAGE_SIZE` (100): bound the query parameter as above and the client gets 422 instead of 500. A row deleted from an earlier page still shifts the next pages by one; that is the limit of offset paging.
+
+Background tasks and streaming responses run after `DbSession` has closed its session. Give them the database provider and open a session there:
+
+```python
+from fastapi import BackgroundTasks, Depends
+
+from fastapi_starter.core.database import DatabaseProvider, get_db_manager
+
+
+async def rebuild_catalog(db: DatabaseProvider) -> None:
+    async with db.session_factory.begin() as session:  # commit at the end, rollback on error
+        ...
+
+
+@router.post("/catalog/rebuild", status_code=202)
+async def start_rebuild(
+    background: BackgroundTasks,
+    db: Annotated[DatabaseProvider, Depends(get_db_manager)],
+) -> None:
+    background.add_task(rebuild_catalog, db)
+```
+
 ## Database migrations
 
 ```bash

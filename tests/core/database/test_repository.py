@@ -12,8 +12,18 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from fastapi_starter.core.database.repository import BaseRepository
+from fastapi_starter.core.database.repository import (
+    DEFAULT_PAGE_SIZE,
+    MAX_PAGE_SIZE,
+    BaseRepository,
+)
 from tests.core.database.fakes import FakeModel
+
+
+def executed_sql(mock_session) -> str:
+    """The statement the repository passed to session.execute, as SQL."""
+    statement = mock_session.execute.call_args.args[0]
+    return str(statement.compile(compile_kwargs={"literal_binds": True}))
 
 
 class TestInitSubclass:
@@ -63,34 +73,66 @@ class TestGetById:
         assert result is None
 
 
-class TestGetAll:
-    """BaseRepository.get_all() — retrieve all entities.
+class TestGetPage:
+    """BaseRepository.get_page() — one page of entities.
 
-    WHY: Uses select() + execute(). We verify the result is properly
-    unpacked from SQLAlchemy's Result -> ScalarResult -> list.
+    WHY: get_all() read the whole table in one go, in no defined order.
+    Postgres returns rows in the order it finds them, and an UPDATE moves
+    a row: page 1 [1, 2, 3], row 1 updated, page 2 [5, 6, 1]. Row 4 was
+    never shown and row 1 twice.
     """
 
-    async def test_returns_all_entities(self, test_repository, mock_session):
-        """[HP] Multiple entities returned as list."""
+    @pytest.fixture(autouse=True)
+    def result(self, mock_session) -> MagicMock:
+        """What execute() returns: no rows, unless a test puts some."""
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = []
+        mock_session.execute.return_value = result
+        return result
+
+    async def test_returns_the_entities(self, test_repository, result):
+        """[HP] The rows of the page, as a list."""
         entities = [FakeModel(id=1, name="a"), FakeModel(id=2, name="b")]
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = entities
-        mock_session.execute.return_value = mock_result
+        result.scalars.return_value.all.return_value = entities
 
-        result = await test_repository.get_all()
+        assert await test_repository.get_page() == entities
 
-        assert result == entities
-        assert len(result) == 2
+    async def test_sorted_by_primary_key(self, test_repository, mock_session):
+        """[HP] ORDER BY the primary key, then LIMIT and OFFSET."""
+        await test_repository.get_page(limit=3, offset=6)
 
-    async def test_empty_table_returns_empty_list(self, test_repository, mock_session):
-        """[EC] No entities -> empty list (not None)."""
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_session.execute.return_value = mock_result
+        sql = " ".join(executed_sql(mock_session).split())
+        assert sql.endswith("ORDER BY fake_model.id LIMIT 3 OFFSET 6")
 
-        result = await test_repository.get_all()
+    async def test_first_page_by_default(self, test_repository, mock_session):
+        """[HP] No arguments -> the first DEFAULT_PAGE_SIZE rows."""
+        await test_repository.get_page()
 
-        assert result == []
+        assert f"LIMIT {DEFAULT_PAGE_SIZE} OFFSET 0" in executed_sql(mock_session)
+
+    async def test_largest_page_accepted(self, test_repository, mock_session):
+        """[HP] limit=MAX_PAGE_SIZE is still a valid page."""
+        await test_repository.get_page(limit=MAX_PAGE_SIZE)
+
+        assert f"LIMIT {MAX_PAGE_SIZE} " in executed_sql(mock_session)
+
+    @pytest.mark.parametrize(
+        ("limit", "offset"),
+        [(0, 0), (MAX_PAGE_SIZE + 1, 0), (10, -1)],
+        ids=["empty-page", "page-too-large", "negative-offset"],
+    )
+    async def test_out_of_range_refused(
+        self, test_repository, mock_session, limit, offset
+    ):
+        """[EC] A page that makes no sense -> ValueError, no query.
+
+        WHY: a limit of a million is a full table read again. The router
+        validates its query parameters (422); this is the last line.
+        """
+        with pytest.raises(ValueError):
+            await test_repository.get_page(limit=limit, offset=offset)
+
+        mock_session.execute.assert_not_called()
 
 
 class TestCreate:
