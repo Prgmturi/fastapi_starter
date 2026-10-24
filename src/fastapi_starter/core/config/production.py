@@ -46,6 +46,10 @@ def production_problems(
 
     if database.password.get_secret_value() in EXAMPLE_DATABASE_PASSWORDS:
         problems.append("DATABASE_PASSWORD is the default or the example value")
+    if database.echo:
+        problems.append(
+            "DATABASE_ECHO is true: every query goes to the logs with its values"
+        )
 
     if "*" in server.cors_origins:
         problems.append('SERVER_CORS_ORIGINS contains "*"')

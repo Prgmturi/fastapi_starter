@@ -37,21 +37,27 @@ class DatabaseSettings(BaseSettings):
         description="Database password",
     )
 
-    # Pool settings
+    # Pool settings. The bounds keep out values SQLAlchemy reads in a
+    # surprising way: pool_size=0 and pool_max_overflow=-1 mean "no limit",
+    # pool_recycle=0 opens a new connection at every checkout.
     pool_size: int = Field(
         default=5,
+        ge=1,
         description="Number of pool connections",
     )
     pool_max_overflow: int = Field(
         default=10,
+        ge=0,
         description="Max overflow connections beyond pool_size",
     )
     pool_timeout: int = Field(
         default=5,
+        gt=0,
         description="Connection acquisition timeout in seconds",
     )
     pool_recycle: int = Field(
         default=1800,
+        gt=0,
         description="Recycle connections older than this (seconds)",
     )
 

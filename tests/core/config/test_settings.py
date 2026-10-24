@@ -135,6 +135,32 @@ class TestDatabaseSettings:
         with pytest.raises(pydantic.ValidationError, match=field):
             DatabaseSettings(**{field: 0})
 
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            # SQLAlchemy reads 0 as "no limit": 20 connections asked, 20 opened
+            ("pool_size", 0),
+            # ...and a negative size lowers the limit: -1 + 10 overflow = 9
+            ("pool_size", -1),
+            # -1 is SQLAlchemy's "no overflow limit"
+            ("pool_max_overflow", -1),
+            # A full pool would fail every request at once instead of waiting
+            ("pool_timeout", 0),
+            # Every checkout would open a new connection: no pool left
+            ("pool_recycle", 0),
+        ],
+    )
+    def test_pool_setting_out_of_range_refused(self, field, value):
+        """[EC] A value SQLAlchemy reads in a surprising way -> refused at startup."""
+        with pytest.raises(pydantic.ValidationError, match=field):
+            DatabaseSettings(**{field: value})
+
+    def test_smallest_pool_accepted(self):
+        """[HP] One connection and no overflow is a valid, if small, pool."""
+        settings = DatabaseSettings(pool_size=1, pool_max_overflow=0)
+
+        assert (settings.pool_size, settings.pool_max_overflow) == (1, 0)
+
 
 class TestKeycloakSettings:
     """KeycloakSettings — OIDC endpoint URLs and which tokens are accepted.
@@ -323,6 +349,8 @@ class TestProductionChecks:
             ),
             ({"DATABASE_PASSWORD": None}, "DATABASE_PASSWORD"),
             ({"DATABASE_PASSWORD": "appbase_secret_change_me"}, "DATABASE_PASSWORD"),
+            # echo logs every query with its values: personal data in the logs
+            ({"DATABASE_ECHO": "true"}, "DATABASE_ECHO"),
             ({"SERVER_CORS_ORIGINS": '["*"]'}, "SERVER_CORS_ORIGINS"),
             ({"SERVER_TRUSTED_HOSTS": None}, "SERVER_TRUSTED_HOSTS"),
             ({"SERVER_TRUSTED_HOSTS": '["*"]'}, "SERVER_TRUSTED_HOSTS"),
@@ -337,6 +365,7 @@ class TestProductionChecks:
             "redirect-uris-unset",
             "db-password-default",
             "db-password-example",
+            "db-echo",
             "cors-any-origin",
             "trusted-hosts-local",
             "trusted-hosts-any",

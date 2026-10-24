@@ -269,7 +269,9 @@ SERVER_MAX_BODY_SIZE=65536         # bytes; a larger request body gets 413
 
 `/docs`, `/redoc`, and `/openapi.json` are only available when `APP_ENVIRONMENT=development`.
 
-With `APP_ENVIRONMENT=production` the app refuses to start while a development or example value is left: `APP_DEBUG=true`, Keycloak's public address on http, an empty or example `KEYCLOAK_CLIENT_SECRET`, `KEYCLOAK_COOKIE_SECURE=false`, no `KEYCLOAK_ALLOWED_REDIRECT_URIS`, the default or example `DATABASE_PASSWORD`, `*` in `SERVER_CORS_ORIGINS` or `SERVER_TRUSTED_HOSTS`, or only localhost in `SERVER_TRUSTED_HOSTS`. The error lists every variable to change at once, without their values. The checks are in `core/config/production.py`.
+With `APP_ENVIRONMENT=production` the app refuses to start while a development or example value is left: `APP_DEBUG=true`, Keycloak's public address on http, an empty or example `KEYCLOAK_CLIENT_SECRET`, `KEYCLOAK_COOKIE_SECURE=false`, no `KEYCLOAK_ALLOWED_REDIRECT_URIS`, the default or example `DATABASE_PASSWORD`, `DATABASE_ECHO=true` (it logs every query with its values), `*` in `SERVER_CORS_ORIGINS` or `SERVER_TRUSTED_HOSTS`, or only localhost in `SERVER_TRUSTED_HOSTS`. The error lists every variable to change at once, without their values. The checks are in `core/config/production.py`.
+
+In every environment the pool settings have bounds, because SQLAlchemy reads some values in a surprising way: `DATABASE_POOL_SIZE` at least 1 (0 means no limit), `DATABASE_POOL_MAX_OVERFLOW` at least 0 (-1 means no limit), `DATABASE_POOL_TIMEOUT`, `DATABASE_POOL_RECYCLE` and the two database timeouts above 0 (`DATABASE_POOL_RECYCLE=0` opens a new connection for every query). A value out of range stops the startup with an error that names the variable.
 
 ## Stack
 
