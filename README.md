@@ -295,6 +295,8 @@ uv run alembic upgrade head
 uv run alembic downgrade -1
 ```
 
+Migrations read `DATABASE_*` and no other setting, so a deploy runs `uv run alembic upgrade head` against the production database before it starts the new version, without the rest of the configuration. CI runs every migration up to head, compares the result with the models (`alembic check`: a model changed without its migration fails the build), then down to the base and up again.
+
 Define models by subclassing `Base` from `core/database/base.py`. Import them in `alembic/env.py` before running autogenerate — if you forget, `--autogenerate` aborts with an explanation instead of emitting a migration that drops every table in the database.
 
 Indexes and constraints get their names from the naming convention in `core/database/base.py`: `pk_<table>`, `uq_<table>_<columns>`, `ix_<table>_<columns>`, `fk_<table>_<columns>_<referred table>`. Postgres would otherwise pick its own names, and the downgrades Alembic writes could not drop them. A `CheckConstraint` needs a `name=`, which becomes `ck_<table>_<name>`; without it the model fails at import. Change the convention only before the first migration: afterwards it renames existing constraints.

@@ -121,6 +121,23 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
+      # The migrations on the same database, as a deploy runs them: up to
+      # head, compared with the models (a model changed without its migration
+      # fails here), down to nothing and up again. alembic/env.py reads
+      # DATABASE_*, the app's variables.
+      - name: Migrations up, check, down and up
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: "5432"
+          DATABASE_NAME: appbase_test
+          DATABASE_USER: appbase
+          DATABASE_PASSWORD: ci-only-password
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+          uv run alembic downgrade base
+          uv run alembic upgrade head
+
       # -m integration replaces the -m "not integration" of addopts
       - name: Integration tests
         run: uv run pytest -m integration --tb=short
