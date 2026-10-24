@@ -55,6 +55,11 @@ class DatabaseManager:
 
         self._engine = create_async_engine(
             database_url(self._settings),
+            # Postgres can close a pooled connection (a restart, a failover,
+            # a proxy's idle timeout). The pool tests each connection before
+            # handing it out and replaces a dead one, so no request gets it.
+            # Costs one round trip per checkout.
+            pool_pre_ping=True,
             pool_size=self._settings.pool_size,
             max_overflow=self._settings.pool_max_overflow,
             pool_timeout=self._settings.pool_timeout,

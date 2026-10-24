@@ -28,9 +28,15 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 
 @pytest.fixture
-async def db_manager() -> AsyncIterator[DatabaseManager]:
+def database_settings() -> IntegrationDatabaseSettings:
+    """TEST_DATABASE_*, with a name that ends in _test."""
+    return IntegrationDatabaseSettings()
+
+
+@pytest.fixture
+async def db_manager(database_settings) -> AsyncIterator[DatabaseManager]:
     """The real DatabaseManager, connected to the test database."""
-    manager = DatabaseManager(IntegrationDatabaseSettings())
+    manager = DatabaseManager(database_settings)
     await manager.connect()
     yield manager
     await manager.disconnect()
