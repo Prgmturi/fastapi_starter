@@ -6,7 +6,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from fastapi_starter.core.config import get_settings
+from fastapi_starter.core.config import DatabaseSettings
 from fastapi_starter.core.database import Base, database_url
 
 # Alembic Config object
@@ -42,8 +42,10 @@ if getattr(config.cmd_opts, "autogenerate", False) and not target_metadata.table
         "qui sopra) prima di eseguire 'alembic revision --autogenerate'."
     )
 
-# Get database URL from settings
-settings = get_settings()
+# Only the database settings: a migration uses nothing else. Loading every
+# setting made production refuse to migrate without the Keycloak secret, the
+# redirect URIs and the trusted hosts.
+database = DatabaseSettings()
 
 
 def run_migrations_offline() -> None:
@@ -52,7 +54,7 @@ def run_migrations_offline() -> None:
 
     Generates SQL script without connecting to database.
     """
-    url = database_url(settings.database)
+    url = database_url(database)
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -77,7 +79,7 @@ async def run_async_migrations() -> None:
     Run migrations in 'online' mode with async engine.
     """
     connectable = create_async_engine(
-        database_url(settings.database),
+        database_url(database),
         poolclass=pool.NullPool,
     )
 

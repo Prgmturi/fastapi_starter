@@ -1,9 +1,14 @@
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fastapi_starter.core.database.base import Base
+
+DEFAULT_PAGE_SIZE = 20
+# A larger page is refused: one request must not read a whole table.
+# Routers use it as the bound of their limit parameter, so clients get 422.
+MAX_PAGE_SIZE = 100
 
 
 class BaseRepository[ModelT: Base]:
@@ -32,8 +37,28 @@ class BaseRepository[ModelT: Base]:
     async def get_by_id(self, entity_id: Any) -> ModelT | None:
         return await self._session.get(self.model, entity_id)
 
-    async def get_all(self) -> list[ModelT]:
-        result = await self._session.execute(select(self.model))
+    async def get_page(
+        self, limit: int = DEFAULT_PAGE_SIZE, offset: int = 0
+    ) -> list[ModelT]:
+        """One page of entities, in primary key order.
+
+        Without ORDER BY, Postgres returns rows in the order it finds them,
+        and an UPDATE moves a row: the next page skips one and repeats
+        another. With the order, only a row deleted from an earlier page
+        shifts the next ones by one, the known limit of offset paging.
+        """
+        if not 1 <= limit <= MAX_PAGE_SIZE:
+            raise ValueError(f"limit must be between 1 and {MAX_PAGE_SIZE}")
+        if offset < 0:
+            raise ValueError("offset must be 0 or more")
+
+        statement = (
+            select(self.model)
+            .order_by(*inspect(self.model).primary_key)
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self._session.execute(statement)
         return list(result.scalars().all())
 
     async def create(self, entity: ModelT) -> ModelT:

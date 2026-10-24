@@ -31,7 +31,7 @@ class DatabaseManager:
 
     @property
     def engine(self) -> AsyncEngine:
-        """Get the database engine. Creates it if not exists."""
+        """The database engine. RuntimeError before connect()."""
         if self._engine is None:
             raise RuntimeError("Database not connected. Call connect() first.")
         return self._engine
@@ -55,11 +55,23 @@ class DatabaseManager:
 
         self._engine = create_async_engine(
             database_url(self._settings),
+            # Postgres can close a pooled connection (a restart, a failover,
+            # a proxy's idle timeout). The pool tests each connection before
+            # handing it out and replaces a dead one, so no request gets it.
+            # Costs one round trip per checkout.
+            pool_pre_ping=True,
             pool_size=self._settings.pool_size,
             max_overflow=self._settings.pool_max_overflow,
             pool_timeout=self._settings.pool_timeout,
             pool_recycle=self._settings.pool_recycle,
             echo=self._settings.echo,
+            # asyncpg's limits. Without them it waits 60 s for a connection
+            # and lets a query run forever. A query over the limit raises
+            # TimeoutError, and asyncpg cancels it on the server too.
+            connect_args={
+                "timeout": self._settings.connect_timeout,
+                "command_timeout": self._settings.command_timeout,
+            },
         )
 
         self._session_factory = async_sessionmaker(
@@ -80,14 +92,6 @@ class DatabaseManager:
             await self._engine.dispose()
             self._engine = None
             self._session_factory = None
-
-    async def get_session(self) -> AsyncSession:
-        """
-        Get a new database session.
-
-        Note: Prefer using the dependency injection via DbSession.
-        """
-        return self.session_factory()
 
     async def health_check(self) -> bool:
         """

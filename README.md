@@ -17,7 +17,7 @@ A backend template built with FastAPI to learn and apply real architectural patt
 | **Config** | Pydantic Settings, layered by domain (`AppSettings`, `DatabaseSettings`, etc.), loaded from `.env`. |
 | **Logging** | structlog. JSON in production with service metadata, colorized in development. Request IDs on every log line. |
 | **Errors** | One format for every error: RFC 9457 problem details (`application/problem+json`). Domain exceptions (`NotFoundError`, `UnauthorizedError`, ...) with global handlers; no internal details reach the client. |
-| **Testing** | Fully async, no real database or auth server needed. Independent of the local `.env`. CI fails below a coverage threshold. |
+| **Testing** | Fully async. The unit tests need no database or auth server and ignore the local `.env`; the integration tests run on a real Postgres, in CI too. CI fails below a coverage threshold. |
 
 ## Architecture
 
@@ -213,15 +213,79 @@ Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) pr
 ## Running tests
 
 ```bash
-uv run pytest                              # all tests
+uv run pytest                              # all tests but the integration ones
 uv run pytest tests/core/auth/            # a module
 uv run pytest tests/core/auth/test_service.py::TestValidateToken  # one class
 uv run pytest --cov                        # with coverage, as CI runs it
+uv run pytest -m integration               # only the integration tests, on a real Postgres
 ```
 
-Tests are fully async and use `AsyncMock` stubs — no real database or Keycloak instance needed. The root `conftest.py` provides fixtures for the app, HTTP client, mock services, and sample users at different role levels.
+Tests are fully async. Outside `tests/integration/` they use `AsyncMock` stubs — no real database or Keycloak instance needed. The root `conftest.py` provides fixtures for the app, HTTP client, mock services, and sample users at different role levels.
 
 Tests never read your local `.env` or exported `APP_*`, `KEYCLOAK_*` variables: an autouse fixture in `conftest.py` switches both off. A test that needs specific settings builds them and passes them to `create_app(settings)`. CI runs the suite twice, the second time with a production-like `.env`, and fails if coverage drops below `fail_under` in `pyproject.toml`.
+
+### Integration tests
+
+The tests in `tests/integration/` run on a real Postgres, for what a mock cannot show, such as a commit that the database refuses. `uv run pytest` leaves them out, even when you name their file; add `-m integration`, which runs only them. They read `TEST_DATABASE_*` (exported or in `.env`, see `.env.example`) and no other setting, and they refuse a database whose name does not end in `_test`, because they create and drop tables in it. Create that database once, in the app database container:
+
+```bash
+docker exec app-db createdb -U appbase appbase_test   # -U: APP_DB_USER in docker/.env
+```
+
+CI runs them in a job of their own, with its own Postgres. They do not count towards the coverage threshold.
+
+## Database access
+
+`DbSession` gives a route one session and one transaction: it commits when the route returns, before the response is sent, and rolls back when anything fails, so a failed commit answers 500, never 201. Repositories extend `BaseRepository`, which has `get_by_id`, `get_page`, `create` and `delete`:
+
+```python
+from typing import Annotated
+
+from fastapi import Query
+
+from fastapi_starter.core.database import (
+    DEFAULT_PAGE_SIZE,
+    MAX_PAGE_SIZE,
+    BaseRepository,
+    DbSession,
+)
+
+
+class ProductRepository(BaseRepository[Product]):
+    model = Product
+
+
+@router.get("/", response_model=list[ProductOut])
+async def list_products(
+    db: DbSession,
+    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    return await ProductRepository(db).get_page(limit=limit, offset=offset)
+```
+
+`get_page` sorts by primary key, so a row updated between two pages is neither skipped nor shown twice. It refuses a `limit` above `MAX_PAGE_SIZE` (100): bound the query parameter as above and the client gets 422 instead of 500. A row deleted from an earlier page still shifts the next pages by one; that is the limit of offset paging.
+
+Background tasks and streaming responses run after `DbSession` has closed its session. Give them the database provider and open a session there:
+
+```python
+from fastapi import BackgroundTasks, Depends
+
+from fastapi_starter.core.database import DatabaseProvider, get_db_manager
+
+
+async def rebuild_catalog(db: DatabaseProvider) -> None:
+    async with db.session_factory.begin() as session:  # commit at the end, rollback on error
+        ...
+
+
+@router.post("/catalog/rebuild", status_code=202)
+async def start_rebuild(
+    background: BackgroundTasks,
+    db: Annotated[DatabaseProvider, Depends(get_db_manager)],
+) -> None:
+    background.add_task(rebuild_catalog, db)
+```
 
 ## Database migrations
 
@@ -231,7 +295,11 @@ uv run alembic upgrade head
 uv run alembic downgrade -1
 ```
 
+Migrations read `DATABASE_*` and no other setting, so a deploy runs `uv run alembic upgrade head` against the production database before it starts the new version, without the rest of the configuration. CI runs every migration up to head, compares the result with the models (`alembic check`: a model changed without its migration fails the build), then down to the base and up again.
+
 Define models by subclassing `Base` from `core/database/base.py`. Import them in `alembic/env.py` before running autogenerate — if you forget, `--autogenerate` aborts with an explanation instead of emitting a migration that drops every table in the database.
+
+Indexes and constraints get their names from the naming convention in `core/database/base.py`: `pk_<table>`, `uq_<table>_<columns>`, `ix_<table>_<columns>`, `fk_<table>_<columns>_<referred table>`. Postgres would otherwise pick its own names, and the downgrades Alembic writes could not drop them. A `CheckConstraint` needs a `name=`, which becomes `ck_<table>_<name>`; without it the model fails at import. Change the convention only before the first migration: afterwards it renames existing constraints.
 
 ## Configuration reference
 
@@ -249,6 +317,7 @@ Key environment variables:
 APP_ENVIRONMENT=development        # development | staging | production
 APP_LOG_LEVEL=INFO                 # DEBUG | INFO | WARNING | ERROR | CRITICAL, any case
 DATABASE_PORT=5433
+DATABASE_COMMAND_TIMEOUT=30        # seconds per query; a slower one answers 500
 KEYCLOAK_CLIENT_SECRET=...         # required
 KEYCLOAK_PUBLIC_URL=                # production: the address the browser sees, = KC_HOSTNAME
 SERVER_CORS_ORIGINS=["http://localhost:3000"]
@@ -257,7 +326,9 @@ SERVER_MAX_BODY_SIZE=65536         # bytes; a larger request body gets 413
 
 `/docs`, `/redoc`, and `/openapi.json` are only available when `APP_ENVIRONMENT=development`.
 
-With `APP_ENVIRONMENT=production` the app refuses to start while a development or example value is left: `APP_DEBUG=true`, Keycloak's public address on http, an empty or example `KEYCLOAK_CLIENT_SECRET`, `KEYCLOAK_COOKIE_SECURE=false`, no `KEYCLOAK_ALLOWED_REDIRECT_URIS`, the default or example `DATABASE_PASSWORD`, `*` in `SERVER_CORS_ORIGINS` or `SERVER_TRUSTED_HOSTS`, or only localhost in `SERVER_TRUSTED_HOSTS`. The error lists every variable to change at once, without their values. The checks are in `core/config/production.py`.
+With `APP_ENVIRONMENT=production` the app refuses to start while a development or example value is left: `APP_DEBUG=true`, Keycloak's public address on http, an empty or example `KEYCLOAK_CLIENT_SECRET`, `KEYCLOAK_COOKIE_SECURE=false`, no `KEYCLOAK_ALLOWED_REDIRECT_URIS`, the default or example `DATABASE_PASSWORD`, `DATABASE_ECHO=true` (it logs every query with its values), `*` in `SERVER_CORS_ORIGINS` or `SERVER_TRUSTED_HOSTS`, or only localhost in `SERVER_TRUSTED_HOSTS`. The error lists every variable to change at once, without their values. The checks are in `core/config/production.py`.
+
+In every environment the pool settings have bounds, because SQLAlchemy reads some values in a surprising way: `DATABASE_POOL_SIZE` at least 1 (0 means no limit), `DATABASE_POOL_MAX_OVERFLOW` at least 0 (-1 means no limit), `DATABASE_POOL_TIMEOUT`, `DATABASE_POOL_RECYCLE` and the two database timeouts above 0 (`DATABASE_POOL_RECYCLE=0` opens a new connection for every query). A value out of range stops the startup with an error that names the variable.
 
 ## Stack
 

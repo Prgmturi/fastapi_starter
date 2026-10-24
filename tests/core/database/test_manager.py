@@ -8,6 +8,9 @@ We verify connect/disconnect idempotency, property guards (raise before
 connect), and health check delegation.
 """
 
+import asyncio
+import time
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -100,6 +103,46 @@ class TestConnect:
         await db_manager.connect()
 
         mock_create_engine.assert_called_once()
+
+
+class TestConnectTimeout:
+    """A database host that accepts the connection and never answers.
+
+    WHY: asyncpg waits 60 seconds by default. At startup the lifespan stays
+    blocked for that long before it reports the error, and so does any
+    request that needs a new connection.
+    """
+
+    @pytest.fixture
+    async def silent_port(self) -> AsyncIterator[int]:
+        """A local port that accepts TCP connections and never answers."""
+
+        async def never_answer(reader, writer):
+            await reader.read()  # until the client gives up and closes
+            writer.close()
+
+        server = await asyncio.start_server(never_answer, "127.0.0.1", 0)
+        yield server.sockets[0].getsockname()[1]
+        server.close_clients()
+        server.close()
+        await server.wait_closed()
+
+    async def test_unresponsive_host_fails_within_connect_timeout(self, silent_port):
+        """[EC] connect_timeout=0.5 -> TimeoutError after about half a second."""
+        manager = DatabaseManager(
+            DatabaseSettings(host="127.0.0.1", port=silent_port, connect_timeout=0.5)
+        )
+        await manager.connect()
+        started = time.monotonic()
+        try:
+            with pytest.raises(TimeoutError):
+                # Stops the test if connect_timeout does not reach asyncpg
+                async with asyncio.timeout(5):
+                    await manager.health_check()
+        finally:
+            await manager.disconnect()
+
+        assert time.monotonic() - started < 2
 
 
 class TestDisconnect:

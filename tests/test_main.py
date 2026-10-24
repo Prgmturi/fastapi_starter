@@ -8,10 +8,11 @@ lifespan() opens and closes every external connection. A leak here shows
 up only in production, as sockets left open after a failed start.
 """
 
+import asyncio
 import os
 import subprocess
 import sys
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -126,6 +127,22 @@ class TestImport:
         assert result.returncode == 0, result.stderr
 
 
+@pytest.fixture
+def main_logger(monkeypatch) -> MagicMock:
+    """Records the log calls of main.py.
+
+    WHY a fake: module loggers are cached on first use
+    (cache_logger_on_first_use), so capture_logs cannot see them.
+    """
+    fake = MagicMock()
+    monkeypatch.setattr("fastapi_starter.main.logger", fake)
+    return fake
+
+
+def logged_events(logger: MagicMock) -> list[str]:
+    return [call.args[0] for call in logger.info.call_args_list]
+
+
 @patch("fastapi_starter.main.init_oauth_provider")
 @patch("fastapi_starter.main.init_auth_service")
 @patch("fastapi_starter.main.init_database")
@@ -180,6 +197,105 @@ class TestLifespan:
         assert http_client.is_closed
         init_database.return_value.disconnect.assert_awaited_once()
         init_oauth_provider.assert_not_called()
+
+    async def test_cancelled_while_serving_closes_everything(
+        self, init_database, init_auth_service, init_oauth_provider, settings
+    ):
+        """[EC] Cancelled at yield -> HTTP client and database closed.
+
+        WHY: uvicorn does this when Ctrl+C arrives during a slow startup:
+        it lets the startup finish, skips the shutdown and cancels the
+        lifespan where it waits, at yield. The code after yield never ran.
+        """
+        app = create_app(settings)
+        serving = asyncio.Event()
+
+        async def serve() -> None:
+            async with lifespan(app):
+                serving.set()
+                await asyncio.Event().wait()  # until cancelled
+
+        task = asyncio.create_task(serve())
+        await serving.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert init_auth_service.call_args.args[2].is_closed
+        init_database.return_value.disconnect.assert_awaited_once()
+
+    async def test_cancelled_during_startup_closes_what_was_opened(
+        self, init_database, init_auth_service, init_oauth_provider, settings
+    ):
+        """[EC] Cancelled while auth starts -> HTTP client and database closed.
+
+        WHY: CancelledError is not an Exception, so "except Exception"
+        let it through: a runner that gives up on a slow startup, with a
+        timeout for example, left the database and the HTTP client open.
+        """
+        waiting_for_keycloak = asyncio.Event()
+
+        async def keycloak_never_answers(*args) -> None:
+            waiting_for_keycloak.set()
+            await asyncio.Event().wait()
+
+        init_auth_service.side_effect = keycloak_never_answers
+        app = create_app(settings)
+
+        async def start() -> None:
+            async with lifespan(app):
+                pass
+
+        task = asyncio.create_task(start())
+        await waiting_for_keycloak.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert init_auth_service.call_args.args[2].is_closed
+        init_database.return_value.disconnect.assert_awaited_once()
+
+    async def test_started_is_logged_once_the_services_run(
+        self,
+        init_database,
+        init_auth_service,
+        init_oauth_provider,
+        settings,
+        main_logger,
+    ):
+        """[HP] started, stopping, stopped: in this order, around the yield."""
+        app = create_app(settings)
+
+        async with lifespan(app):
+            assert logged_events(main_logger) == ["application_started"]
+
+        assert logged_events(main_logger) == [
+            "application_started",
+            "application_stopping",
+            "application_stopped",
+        ]
+
+    async def test_failed_startup_never_logs_started(
+        self,
+        init_database,
+        init_auth_service,
+        init_oauth_provider,
+        settings,
+        main_logger,
+    ):
+        """[EC] Auth init fails -> no application_started in the logs.
+
+        WHY: "started" followed by an error made a failed start look like
+        a crash of a running app.
+        """
+        init_auth_service.side_effect = RuntimeError("JWKS unreachable")
+        app = create_app(settings)
+
+        with pytest.raises(RuntimeError):
+            async with lifespan(app):
+                pass
+
+        assert "application_started" not in logged_events(main_logger)
 
 
 class TestRootEndpoint:

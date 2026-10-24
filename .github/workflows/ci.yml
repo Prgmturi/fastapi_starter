@@ -77,6 +77,71 @@ jobs:
           printf 'KEYCLOAK_COOKIE_NAME=__Host-rt\nKEYCLOAK_COOKIE_SECURE=false\n' > .env
           uv run pytest -q --tb=short -p no:cacheprovider
 
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    # A Postgres for this job only, the image of docker/docker-compose.yaml.
+    # GitHub starts it before the steps and waits until pg_isready answers.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: appbase_test
+          POSTGRES_USER: appbase
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U appbase -d appbase_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+
+    # The same database as the service above, as the tests read it
+    # (tests/integration/settings.py)
+    env:
+      TEST_DATABASE_HOST: localhost
+      TEST_DATABASE_PORT: "5432"
+      TEST_DATABASE_NAME: appbase_test
+      TEST_DATABASE_USER: appbase
+      TEST_DATABASE_PASSWORD: ci-only-password
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # The migrations on the same database, as a deploy runs them: up to
+      # head, compared with the models (a model changed without its migration
+      # fails here), down to nothing and up again. alembic/env.py reads
+      # DATABASE_*, the app's variables.
+      - name: Migrations up, check, down and up
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: "5432"
+          DATABASE_NAME: appbase_test
+          DATABASE_USER: appbase
+          DATABASE_PASSWORD: ci-only-password
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+          uv run alembic downgrade base
+          uv run alembic upgrade head
+
+      # -m integration replaces the -m "not integration" of addopts
+      - name: Integration tests
+        run: uv run pytest -m integration --tb=short
+
   docker:
     name: Build container image
     runs-on: ubuntu-latest
