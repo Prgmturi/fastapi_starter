@@ -26,16 +26,15 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """Application lifespan handler for startup and shutdown events."""
-    settings: Settings = app.state.settings
-    logger.info(
-        "application_started",
-        app_name=settings.app.name,
-        version=settings.app.version,
-        environment=settings.app.environment,
-        debug=settings.app.debug,
-    )
+    """Application lifespan handler for startup and shutdown events.
 
+    Every service is added to ``services`` as soon as it is open, and the
+    finally block closes them whatever ends the lifespan: a normal
+    shutdown, a service that fails to start, or a cancellation. uvicorn
+    cancels the lifespan at yield when Ctrl+C arrives during startup, and
+    CancelledError is not an Exception.
+    """
+    settings: Settings = app.state.settings
     services: list[tuple[str, CleanupFn]] = []
     try:
         db_manager = await init_database(app.state, settings.database)
@@ -49,15 +48,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
         await init_auth_service(app.state, settings.keycloak, keycloak_http)
         await init_oauth_provider(app.state, settings.keycloak, keycloak_http)
-    except Exception:
+
+        logger.info(
+            "application_started",
+            app_name=settings.app.name,
+            version=settings.app.version,
+            environment=settings.app.environment,
+            debug=settings.app.debug,
+        )
+        yield
+        logger.info("application_stopping")
+    finally:
         await shutdown_services(services)
-        raise
-
-    yield
-
-    logger.info("application_stopping")
-    await shutdown_services(services)
-    logger.info("application_stopped")
+        logger.info("application_stopped")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
