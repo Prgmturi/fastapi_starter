@@ -15,7 +15,7 @@ A backend template built with FastAPI to learn and apply real architectural patt
 | **Architecture** | Hexagonal (Ports & Adapters). Core logic talks only to protocols — swap Keycloak for Auth0 without touching `AuthService`. |
 | **Database** | Async PostgreSQL with SQLAlchemy 2.0. Connection pooling, session lifecycle, base repository pattern. |
 | **Config** | Pydantic Settings, layered by domain (`AppSettings`, `DatabaseSettings`, etc.), loaded from `.env`. |
-| **Logging** | structlog. JSON in production with service metadata, colorized in development. Request IDs on every log line. |
+| **Logging** | structlog. One format for every line, uvicorn's and SQLAlchemy's too: JSON in production with service metadata, colorized in development. Request IDs on every log line. |
 | **Errors** | One format for every error: RFC 9457 problem details (`application/problem+json`). Domain exceptions (`NotFoundError`, `UnauthorizedError`, ...) with global handlers; no internal details reach the client. |
 | **Testing** | Fully async. The unit tests need no database or auth server and ignore the local `.env`; the integration tests run on a real Postgres, in CI too. CI fails below a coverage threshold. |
 
@@ -209,6 +209,13 @@ Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) pr
 - `GET /health/live` answers 200 while the process runs. The Docker `HEALTHCHECK` calls it with `python -m fastapi_starter.healthcheck`, which sends the first `SERVER_TRUSTED_HOSTS` entry as `Host` and `SERVER_PORT` as port: the probe passes the trusted-host check that real requests pass.
 - `GET /health/ready` answers 200 when the instance can serve requests and 503 when a check fails. The body is a status report, not a problem document, and gives only the status of each check: `{"status": "unhealthy", "checks": {"database": {"status": "unhealthy"}, "auth": {"status": "healthy"}}}`. The endpoint needs no token, so the cause goes to the logs only, as `readiness_check_failed`. A check that takes more than 2 seconds counts as failed.
 - The auth check does not call Keycloak: it passes while the signing keys are cached. If Keycloak goes down, the instances keep validating tokens with those keys and stay ready.
+
+## Logs
+
+Every line the process writes has one format: JSON outside development, with the timestamp, the level and the service fields (`service`, `version`, `environment`), and colorized columns in development. The records of uvicorn, SQLAlchemy and httpx go through the same formatter, with the name of their logger in `logger`; a traceback stays inside its line, in `exception`. `APP_LOG_LEVEL` applies to them too.
+
+- uvicorn's access line is off: `request_completed` says the same, with the request id and the duration, and the access line also carries the query string. To have it back, delete the line that sets `uvicorn.access` to `WARNING` in `core/logging/config.py`.
+- With `--workers` or `--reload`, uvicorn's parent process never calls the app factory, so its few lines (start and stop) keep uvicorn's format. The Docker image runs one process: to scale, run more containers.
 
 ## Running tests
 
