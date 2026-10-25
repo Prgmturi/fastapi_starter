@@ -350,6 +350,16 @@ With `APP_ENVIRONMENT=production` the app refuses to start while a development o
 
 In every environment the pool settings have bounds, because SQLAlchemy reads some values in a surprising way: `DATABASE_POOL_SIZE` at least 1 (0 means no limit), `DATABASE_POOL_MAX_OVERFLOW` at least 0 (-1 means no limit), `DATABASE_POOL_TIMEOUT`, `DATABASE_POOL_RECYCLE` and the two database timeouts above 0 (`DATABASE_POOL_RECYCLE=0` opens a new connection for every query). A value out of range stops the startup with an error that names the variable.
 
+## Releases
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/): commitlint checks every commit of a pull request and its title, which becomes the commit on `master` when the pull request is squashed. [release-please](https://github.com/googleapis/release-please) keeps a release pull request open with the next version and the CHANGELOG. Merging it:
+
+- tags `vX.Y.Z` and publishes the GitHub release;
+- publishes the image `ghcr.io/prgmturi/fastapi_starter:X.Y.Z`, and `:latest`;
+- has already bumped the version in `pyproject.toml`, `uv.lock` and the `image:` lines of `compose.prod.yaml`.
+
+Under 1.0, `feat` and `fix` raise the patch number and a breaking change (`!`) the minor one.
+
 ## Production
 
 `compose.prod.yaml`, over `compose.yaml`, runs the stack on one server: the image of a release, Keycloak in production mode behind a TLS proxy, every password and secret from the server's `.env`, the API and Keycloak on `127.0.0.1` only, and logs that rotate:

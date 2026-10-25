@@ -11,7 +11,7 @@ What you need:
 - a server with Docker and Docker Compose 2.24 or later (`compose.prod.yaml` uses the `!reset` and `!override` tags);
 - two DNS names pointing at it, one for the API and one for Keycloak (here `api.example.com` and `auth.example.com`), and their certificates, for example from certbot;
 - Nginx on the server, with `docs/nginx.conf`;
-- the image of a release, `ghcr.io/prgmturi/fastapi_starter:<version>`: the version is the one in `compose.prod.yaml`.
+- the image of a release, `ghcr.io/prgmturi/fastapi_starter:<version>`: the version is the one in `compose.prod.yaml`. The release workflow creates the package with the visibility of the repository, so a public repository gives a public image. From a private repository, log the server in to `ghcr.io` with a token that can read packages.
 
 `compose.prod.yaml` changes what a server needs, and nothing else:
 

@@ -29,3 +29,44 @@ jobs:
         id: release
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  # The image of the release on GitHub's registry, with the version and
+  # latest: ghcr.io/prgmturi/fastapi_starter, the image compose.prod.yaml
+  # runs. It belongs here: the tag release-please pushes with GITHUB_TOKEN
+  # starts no other workflow (tests/test_release.py).
+  image:
+    name: Publish the container image
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read    # check out the tag
+      packages: write   # push to ghcr.io
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Log in to ghcr.io
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      # The registry wants lower case, and the owner is Prgmturi. The source
+      # label links the package to this repository on GitHub.
+      - name: Build and push
+        env:
+          REGISTRY: ghcr.io
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          image="$REGISTRY/${GITHUB_REPOSITORY,,}"
+          version="${TAG#v}"
+          docker build -f docker/Dockerfile \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.version=$version" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            -t "$image:$version" -t "$image:latest" .
+          docker push "$image:$version"
+          docker push "$image:latest"
