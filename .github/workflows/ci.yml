@@ -147,10 +147,18 @@ jobs:
       - name: Build image
         run: docker build -f docker/Dockerfile -t fastapi-starter:ci .
 
-      # Smoke test senza servizi esterni: create_app() costruisce settings,
-      # logging, middleware e router, come fa uvicorn --factory all'avvio.
-      # Database e Keycloak restano fuori — vengono toccati solo nel lifespan.
+      # Smoke test without external services: create_app() builds settings,
+      # logging, middleware and routes, as uvicorn does when the process
+      # starts. Database and Keycloak are touched only by the lifespan.
       - name: Smoke test
         run: |
-          docker run --rm --entrypoint python fastapi-starter:ci \
-            -c "from fastapi_starter.main import create_app; app = create_app(); assert app.routes; print(f'{len(app.routes)} routes registered')"
+          docker run --rm fastapi-starter:ci python -c \
+            "from fastapi_starter.main import create_app; app = create_app(); assert app.routes; print(f'{len(app.routes)} routes registered')"
+
+      # The app runs as appuser, who must not be able to change its own
+      # code: as the owner, a process taken over could rewrite it, and a
+      # restarted container would run the rewritten copy.
+      - name: The app cannot change its code
+        run: |
+          docker run --rm fastapi-starter:ci python -c \
+            "import os, fastapi_starter as p; d = os.path.dirname(p.__file__); assert not os.access(d, os.W_OK), d; print(d, 'is read-only for', os.getuid())"

@@ -96,10 +96,11 @@ root_package = "fastapi_starter"
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "Layers: main -> setup, exception_handlers -> features -> core"
+name = "Layers: main, serve, healthcheck -> setup, exception_handlers -> features -> core"
 type = "layers"
 layers = [
-    "fastapi_starter.main",
+    # The entry points: the app factory and the image's two commands
+    "fastapi_starter.main | fastapi_starter.serve | fastapi_starter.healthcheck",
     "fastapi_starter.setup | fastapi_starter.exception_handlers",
     "fastapi_starter.features",
     "fastapi_starter.core",

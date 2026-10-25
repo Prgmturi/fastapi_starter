@@ -2,7 +2,6 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
-import uvicorn
 from fastapi import FastAPI
 
 from fastapi_starter.core.config import Settings, get_settings
@@ -66,8 +65,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure the FastAPI application.
 
-    uvicorn calls this when the server process starts (``--factory``).
-    Importing this module builds nothing and reads no configuration.
+    uvicorn calls this when the server process starts (``--factory``):
+    ``python -m fastapi_starter.serve`` in the image, the uvicorn command
+    in development. Importing this module builds nothing and reads no
+    configuration.
 
     Args:
         settings: Configuration for this app. When omitted, it is loaded
@@ -115,16 +116,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
 
     return app
-
-
-if __name__ == "__main__":
-    settings = get_settings()
-    uvicorn.run(
-        "fastapi_starter.main:create_app",
-        factory=True,
-        host=settings.server.host,
-        port=settings.server.port,
-        timeout_keep_alive=settings.server.timeout_keep_alive,
-        reload=settings.app.is_development,
-        workers=settings.server.workers if not settings.app.is_development else 1,
-    )

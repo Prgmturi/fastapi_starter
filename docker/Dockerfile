@@ -1,11 +1,18 @@
-FROM python:3.13-slim AS builder
+# =============================================================================
+# Stage 1: build the virtual environment
+# =============================================================================
+# The base image by tag and by digest. The tag says what it is; the digest
+# makes every build of a commit start from the same image, because the tag
+# moves whenever Debian or Python ship a fix. Both stages use the same one
+# (tests/test_dockerfile.py).
+FROM python:3.13-slim@sha256:d98cc29d3266e535dd9da1099688d9cb3ca4753813571e071763d17725460962 AS builder
 
 WORKDIR /app
 
-# UV_LINK_MODE=copy — necessario in Docker perché i hardlink non funzionano
-# tra layer diversi del filesystem overlay di Docker.
-# UV_COMPILE_BYTECODE=1 — compila .py → .pyc durante la build.
-# Il container parte con il bytecode già pronto → cold start più veloce.
+# UV_LINK_MODE=copy: hard links do not work across the layers of Docker's
+#   overlay filesystem.
+# UV_COMPILE_BYTECODE=1: every module, the app's too, is compiled here, so
+#   the container starts with its bytecode ready.
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1
 
@@ -13,10 +20,8 @@ ENV UV_LINK_MODE=copy \
 # the lock CI checks is the lock the image installs.
 COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /usr/local/bin/uv
 
-# README.md va copiato insieme al pyproject: [project] dichiara
-# readme = "README.md" e hatchling lo legge in fase di build.
-# Senza, "uv sync" fallisce con:
-#   OSError: Readme file does not exist: README.md
+# README.md too: pyproject.toml names it as the readme, and building the
+# package fails without it (OSError: Readme file does not exist).
 COPY pyproject.toml uv.lock README.md ./
 
 # --locked: installs exactly what uv.lock says, and stops if the lock is out
@@ -27,89 +32,57 @@ COPY pyproject.toml uv.lock README.md ./
 #   the app does not need to run.
 RUN uv sync --locked --no-install-project --no-dev
 
-# Solo ora copiamo il codice sorgente.
-# Questo layer cambia ad ogni modifica del codice — è giusto che sia qui,
-# dopo le dipendenze.
+# Then the project. --no-editable installs it into the virtual environment
+# like any other package, so the runtime stage needs no src/ and no
+# PYTHONPATH: an editable install would point back at this copy of src/.
 COPY src ./src
-COPY alembic ./alembic
-COPY alembic.ini ./
-
-# Ora installiamo anche il progetto stesso (fastapi_starter come package).
-# uv legge [build-system] e [tool.hatch.build.targets.wheel] dal pyproject.toml
-# e installa src/fastapi_starter come package editabile nel .venv.
-RUN uv sync --locked --no-dev
+RUN uv sync --locked --no-dev --no-editable
 
 
 # =============================================================================
-# Stage 2: Runtime
+# Stage 2: runtime
 # =============================================================================
-# Partiamo da un'immagine base fresca — niente del builder ci segue
-# a meno che non lo copiamo esplicitamente con COPY --from=builder.
-# Risultato: niente uv, niente cache, niente pyproject.toml nell'immagine finale.
-FROM python:3.13-slim AS runtime
+# A fresh base: only what is copied from the builder comes along, so no uv,
+# no build cache, no source tree.
+FROM python:3.13-slim@sha256:d98cc29d3266e535dd9da1099688d9cb3ca4753813571e071763d17725460962 AS runtime
 
 WORKDIR /app
 
-# PYTHONUNBUFFERED=1 — Python non bufferizza stdout/stderr.
-#   Critico in container: se l'app crasha con output bufferizzato,
-#   i log spariscono. Con =1 ogni log è scritto immediatamente.
-# PYTHONDONTWRITEBYTECODE=1 — non scrivere .pyc a runtime.
-#   Li abbiamo già compilati nel builder con UV_COMPILE_BYTECODE.
-#   Evita scritture inutili su disco nel container.
-# PATH — aggiunge il .venv al PATH così 'uvicorn', 'alembic' etc.
-#   sono trovati senza dover scrivere il path completo.
-# PYTHONPATH — necessario per il layout src/: Python deve sapere
-#   dove trovare fastapi_starter. Senza questo, 'import fastapi_starter' fallisce.
+# PYTHONUNBUFFERED=1: every line reaches docker logs at once, even when the
+#   process dies.
+# PYTHONDONTWRITEBYTECODE=1: no .pyc written at run time; the builder
+#   compiled them, and the app cannot write here anyway.
+# PATH: python and alembic of the virtual environment.
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/app/.venv/bin:$PATH" \
-    PYTHONPATH="/app/src"
+    PATH="/app/.venv/bin:$PATH"
 
-# Creiamo l'utente non-root PRIMA di copiare i file.
-# --no-create-home: non serve /home/appuser per un'app web.
-# La seconda riga assegna la proprietà di /app all'utente
-# (WORKDIR crea /app come root).
-RUN useradd --no-create-home --shell /bin/bash appuser \
-    && chown appuser:appuser /app
+# The user the app runs as owns nothing in the image. The virtual
+# environment (with the app) and the migrations belong to root: a process
+# taken over cannot change them, and a container that restarts runs the
+# code of the image, not a changed copy.
+RUN useradd --no-create-home --shell /usr/sbin/nologin appuser
 
-# Copiamo solo quello che serve a runtime dal builder:
-# - .venv: Python + tutte le dipendenze installate
-# - src: il codice dell'applicazione
-# - alembic + alembic.ini: necessari per le migrazioni
-# Non copiamo: uv, pyproject.toml, uv.lock, cache — non servono.
-COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
-COPY --from=builder --chown=appuser:appuser /app/src /app/src
-COPY --from=builder --chown=appuser:appuser /app/alembic /app/alembic
-COPY --from=builder --chown=appuser:appuser /app/alembic.ini /app/alembic.ini
+COPY --from=builder /app/.venv /app/.venv
+COPY alembic ./alembic
+COPY alembic.ini ./
 
-# Passiamo all'utente non-root.
-# Tutto quello che succede da qui in poi (incluso il processo uvicorn)
-# gira senza privilegi di root — se c'è una vulnerabilità nell'app,
-# l'attaccante non ha accesso root al container.
 USER appuser
 
 EXPOSE 8000
 
-# HEALTHCHECK — Docker controlla periodicamente che l'app risponda.
-# Se fallisce N volte consecutive, il container è marcato "unhealthy"
-# e docker-compose / Traefik lo toglie dalla rotazione.
-# The probe is src/fastapi_starter/healthcheck.py (stdlib urllib: no curl
-# or wget in slim). It sends the first SERVER_TRUSTED_HOSTS entry as Host:
-# with Host: localhost, production trusted hosts answered 400 and a working
-# container was marked unhealthy. Port: SERVER_PORT, 8000 like the CMD.
-# --start-period=10s: aspetta 10s prima di iniziare i check
-#   (il lifespan startup — db connect, JWKS fetch — richiede tempo).
+# Docker's probe: python -m fastapi_starter.healthcheck (urllib, since the
+# slim image has no curl or wget). It sends the first SERVER_TRUSTED_HOSTS
+# entry as Host, which TrustedHostMiddleware accepts, to SERVER_PORT, the
+# port fastapi_starter.serve listens on. The start period covers the startup:
+# connecting to the database and fetching Keycloak's signing keys.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD ["python", "-m", "fastapi_starter.healthcheck"]
 
-# ENTRYPOINT fissa il comando base — non sostituibile a runtime.
-# CMD fornisce gli argomenti di default — sovrascrivibili.
-# --factory: uvicorn chiama create_app() all'avvio del processo. Le settings
-#   si leggono lì, non come effetto collaterale dell'import di main.py.
-# Pattern: docker run myimage --host 0.0.0.0 --port 8000 --workers 4
-#   → uvicorn fastapi_starter.main:create_app --factory --host 0.0.0.0 ...
-#   Il CMD si sostituisce per intero: host e porta vanno ripetuti.
-# In produzione: workers va gestito da fuori (env var o compose),
-# non hardcoded qui — ogni progetto derivato dallo starter può avere esigenze diverse.
-ENTRYPOINT ["uvicorn", "fastapi_starter.main:create_app", "--factory"]
-CMD ["--host", "0.0.0.0", "--port", "8000"]
+# uvicorn with the SERVER_* settings: host, port, keep-alive, the proxies
+# trusted with X-Forwarded-For, and the seconds open requests get when
+# docker stop arrives (SERVER_TIMEOUT_GRACEFUL_SHUTDOWN, below the 10 that
+# docker stop waits before it kills the process). Another command replaces
+# this one whole, as the migrations do:
+#   docker run <image> alembic upgrade head
+CMD ["python", "-m", "fastapi_starter.serve"]

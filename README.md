@@ -32,13 +32,15 @@ features/   ← business logic: your endpoints go here
 
 CI checks these rules on every push and pull request, so breaking one fails the build:
 
-- `uv run lint-imports` checks the import contracts in `pyproject.toml` (`[tool.importlinter]`). The layers are `main` → `setup`, `exception_handlers` → `features` → `core`, and a module never imports from a layer above its own. Protocols import no adapter, `AuthService` imports neither PyJWT nor httpx, `core/auth/` never touches the database, and routers don't import httpx. A broken contract prints what to do instead.
+- `uv run lint-imports` checks the import contracts in `pyproject.toml` (`[tool.importlinter]`). The layers are the entry points (`main`, `serve`, `healthcheck`) → `setup`, `exception_handlers` → `features` → `core`, and a module never imports from a layer above its own. Protocols import no adapter, `AuthService` imports neither PyJWT nor httpx, `core/auth/` never touches the database, and routers don't import httpx. A broken contract prints what to do instead.
 - mypy checks that each adapter still matches its port: `setup.py` stores every adapter in `app.state` through a variable typed as the port.
 - ruff rejects imports inside functions (`PLC0415`).
 
 ```
 src/fastapi_starter/
 ├── main.py                  # App factory + lifespan
+├── serve.py                 # The image's command: uvicorn with the SERVER_* settings
+├── healthcheck.py           # The image's health probe
 ├── setup.py                 # Composition root — the only place that knows everything
 ├── exception_handlers.py    # Exceptions → RFC 9457 error responses
 ├── core/
@@ -209,7 +211,7 @@ Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) pr
 
 ## Health checks
 
-- `GET /health/live` answers 200 while the process runs. The Docker `HEALTHCHECK` calls it with `python -m fastapi_starter.healthcheck`, which sends the first `SERVER_TRUSTED_HOSTS` entry as `Host` and `SERVER_PORT` as port: the probe passes the trusted-host check that real requests pass.
+- `GET /health/live` answers 200 while the process runs. The Docker `HEALTHCHECK` calls it with `python -m fastapi_starter.healthcheck`, which sends the first `SERVER_TRUSTED_HOSTS` entry as `Host` and `SERVER_PORT` as port: the probe passes the trusted-host check that real requests pass, on the port the image's command (`python -m fastapi_starter.serve`) listens on.
 - `GET /health/ready` answers 200 when the instance can serve requests and 503 when a check fails. The body is a status report, not a problem document, and gives only the status of each check: `{"status": "unhealthy", "checks": {"database": {"status": "unhealthy"}, "auth": {"status": "healthy"}}}`. The endpoint needs no token, so the cause goes to the logs only, as `readiness_check_failed`. A check that takes more than 2 seconds counts as failed.
 - The auth check does not call Keycloak: it passes while the signing keys are cached. If Keycloak goes down, the instances keep validating tokens with those keys and stay ready.
 
@@ -219,9 +221,9 @@ Every line the process writes has one format: JSON outside development, with the
 
 - Every request has an id, in all its log lines (`request_id`) and in the `X-Request-ID` response header. A request that comes with an `X-Request-ID` of up to 64 letters, digits, `.`, `_` or `-` keeps it, so the proxy's log and the app's share the id; any other value is replaced with a new one. The proxy must set the header itself, over the client's, or the client picks the id: with Nginx, `proxy_set_header X-Request-ID $request_id;`, and `$request_id` in its `log_format`. CORS exposes the header, so a frontend on another origin can read it, for example to show it with an error.
 - `request_started` names the client, with `client_ip` and `user_agent`. The query string is not logged: it can hold personal data or tokens. The request lines of the health probes (`/health/...`) are DEBUG, since Docker's `HEALTHCHECK` alone would write two lines every 30 seconds.
-- Behind a proxy, uvicorn takes the client's address from `X-Forwarded-For` only on connections from an address in `FORWARDED_ALLOW_IPS`, by default `127.0.0.1`. In a container the proxy has another address: set `FORWARDED_ALLOW_IPS` to it, or to its network (`172.18.0.0/16`), or `client_ip` is always the proxy's. uvicorn reads it from the environment of the process, not from `.env`. Never `*` while the port can be reached without the proxy: anyone could choose the address the logs show.
+- Behind a proxy, uvicorn takes the client's address from `X-Forwarded-For` only on connections from an address in `SERVER_FORWARDED_ALLOW_IPS`, by default `["127.0.0.1"]`. In a container the proxy has another address: set it to that address, or to its network (`["172.18.0.0/16"]`), or `client_ip` is always the proxy's. Never `*` while the port can be reached without the proxy: anyone could choose the address the logs show, and production refuses it. The image's command passes the setting to uvicorn; the uvicorn command used in development reads uvicorn's own `FORWARDED_ALLOW_IPS` variable instead.
 - uvicorn's access line is off: `request_completed` says the same, with the request id and the duration, and the access line also carries the query string. To have it back, delete the line that sets `uvicorn.access` to `WARNING` in `core/logging/config.py`.
-- With `--workers` or `--reload`, uvicorn's parent process never calls the app factory, so its few lines (start and stop) keep uvicorn's format. The Docker image runs one process: to scale, run more containers.
+- With `--workers` or `--reload`, uvicorn's parent process never calls the app factory, so its few lines (start and stop) keep uvicorn's format. The Docker image runs one process unless `SERVER_WORKERS` says otherwise: to scale, run more containers.
 
 ## Running tests
 
@@ -335,13 +337,16 @@ KEYCLOAK_CLIENT_SECRET=...         # required
 KEYCLOAK_PUBLIC_URL=                # production: the address the browser sees, = KC_HOSTNAME
 SERVER_CORS_ORIGINS=["http://localhost:3000"]
 SERVER_MAX_BODY_SIZE=65536         # bytes; a larger request body gets 413
+SERVER_PORT=8000                   # the image listens and probes here
+SERVER_TIMEOUT_GRACEFUL_SHUTDOWN=5 # seconds open requests get at shutdown, below docker stop's 10
+SERVER_FORWARDED_ALLOW_IPS=["127.0.0.1"]  # the proxy, behind one: see Logs
 ```
 
-Behind a proxy, also `FORWARDED_ALLOW_IPS`, which uvicorn reads from the environment of the process, not from `.env`: see [Logs](#logs).
+The image starts with `python -m fastapi_starter.serve`, which runs uvicorn with the `SERVER_*` settings: host, port, workers, keep-alive, the shutdown time and the trusted proxies. Another command replaces it whole, as for the migrations: `docker run <image> alembic upgrade head`.
 
 `/docs`, `/redoc`, and `/openapi.json` are only available when `APP_ENVIRONMENT=development`.
 
-With `APP_ENVIRONMENT=production` the app refuses to start while a development or example value is left: `APP_DEBUG=true`, Keycloak's public address on http, an empty or example `KEYCLOAK_CLIENT_SECRET`, `KEYCLOAK_COOKIE_SECURE=false`, no `KEYCLOAK_ALLOWED_REDIRECT_URIS`, the default or example `DATABASE_PASSWORD`, `DATABASE_ECHO=true` (it logs every query with its values), `*` in `SERVER_CORS_ORIGINS` or `SERVER_TRUSTED_HOSTS`, or only localhost in `SERVER_TRUSTED_HOSTS`. The error lists every variable to change at once, without their values. The checks are in `core/config/production.py`.
+With `APP_ENVIRONMENT=production` the app refuses to start while a development or example value is left: `APP_DEBUG=true`, Keycloak's public address on http, an empty or example `KEYCLOAK_CLIENT_SECRET`, `KEYCLOAK_COOKIE_SECURE=false`, no `KEYCLOAK_ALLOWED_REDIRECT_URIS`, the default or example `DATABASE_PASSWORD`, `DATABASE_ECHO=true` (it logs every query with its values), `*` in `SERVER_CORS_ORIGINS`, `SERVER_TRUSTED_HOSTS` or `SERVER_FORWARDED_ALLOW_IPS`, or only localhost in `SERVER_TRUSTED_HOSTS`. The error lists every variable to change at once, without their values. The checks are in `core/config/production.py`.
 
 In every environment the pool settings have bounds, because SQLAlchemy reads some values in a surprising way: `DATABASE_POOL_SIZE` at least 1 (0 means no limit), `DATABASE_POOL_MAX_OVERFLOW` at least 0 (-1 means no limit), `DATABASE_POOL_TIMEOUT`, `DATABASE_POOL_RECYCLE` and the two database timeouts above 0 (`DATABASE_POOL_RECYCLE=0` opens a new connection for every query). A value out of range stops the startup with an error that names the variable.
 

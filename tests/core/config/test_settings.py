@@ -354,6 +354,8 @@ class TestProductionChecks:
             ({"SERVER_CORS_ORIGINS": '["*"]'}, "SERVER_CORS_ORIGINS"),
             ({"SERVER_TRUSTED_HOSTS": None}, "SERVER_TRUSTED_HOSTS"),
             ({"SERVER_TRUSTED_HOSTS": '["*"]'}, "SERVER_TRUSTED_HOSTS"),
+            # Anyone could choose the client address the logs show
+            ({"SERVER_FORWARDED_ALLOW_IPS": '["*"]'}, "SERVER_FORWARDED_ALLOW_IPS"),
         ],
         ids=[
             "debug",
@@ -369,6 +371,7 @@ class TestProductionChecks:
             "cors-any-origin",
             "trusted-hosts-local",
             "trusted-hosts-any",
+            "forwarded-any",
         ],
     )
     def test_development_value_refused(
@@ -451,3 +454,26 @@ class TestServerSettings:
         """[EC] 0 would answer 413 to every request with a body."""
         with pytest.raises(pydantic.ValidationError):
             ServerSettings(max_body_size=0)
+
+    def test_default_graceful_shutdown_timeout(self):
+        """[HP] Open requests get 5 seconds at shutdown, then uvicorn cancels them."""
+        assert ServerSettings().timeout_graceful_shutdown == 5
+
+    def test_graceful_shutdown_timeout_must_be_positive(self):
+        """[EC] 0 or less would cut every open request at once."""
+        with pytest.raises(pydantic.ValidationError):
+            ServerSettings(timeout_graceful_shutdown=0)
+
+    def test_default_forwarded_allow_ips(self):
+        """[HP] Only a proxy on the same host is trusted, as uvicorn does."""
+        assert ServerSettings().forwarded_allow_ips == ["127.0.0.1"]
+
+    def test_forwarded_allow_ips_from_env(self, monkeypatch):
+        """[HP] A JSON list, like SERVER_TRUSTED_HOSTS; networks are accepted.
+
+        WHY: uvicorn read FORWARDED_ALLOW_IPS from the environment of the
+        process only, never from .env.
+        """
+        monkeypatch.setenv("SERVER_FORWARDED_ALLOW_IPS", '["172.18.0.0/16"]')
+
+        assert ServerSettings().forwarded_allow_ips == ["172.18.0.0/16"]

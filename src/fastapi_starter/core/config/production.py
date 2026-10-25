@@ -59,5 +59,10 @@ def production_problems(
         problems.append(
             "SERVER_TRUSTED_HOSTS lists only localhost: add the API's domain"
         )
+    if "*" in server.forwarded_allow_ips:
+        problems.append(
+            'SERVER_FORWARDED_ALLOW_IPS contains "*": any client can choose '
+            "the address the logs show"
+        )
 
     return problems
