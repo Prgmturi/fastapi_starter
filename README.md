@@ -350,6 +350,16 @@ With `APP_ENVIRONMENT=production` the app refuses to start while a development o
 
 In every environment the pool settings have bounds, because SQLAlchemy reads some values in a surprising way: `DATABASE_POOL_SIZE` at least 1 (0 means no limit), `DATABASE_POOL_MAX_OVERFLOW` at least 0 (-1 means no limit), `DATABASE_POOL_TIMEOUT`, `DATABASE_POOL_RECYCLE` and the two database timeouts above 0 (`DATABASE_POOL_RECYCLE=0` opens a new connection for every query). A value out of range stops the startup with an error that names the variable.
 
+## Production
+
+`compose.prod.yaml`, over `compose.yaml`, runs the stack on one server: the image of a release, Keycloak in production mode behind a TLS proxy, every password and secret from the server's `.env`, the API and Keycloak on `127.0.0.1` only, and logs that rotate:
+
+```bash
+docker compose -f compose.yaml -f compose.prod.yaml up -d
+```
+
+[`docs/production.md`](docs/production.md) is the guide, from the first start of Keycloak to backups, and [`docs/nginx.conf`](docs/nginx.conf) the proxy: TLS, the request id, rate limits, and only the public paths of Keycloak.
+
 ## Stack
 
 - [FastAPI](https://fastapi.tiangolo.com/)

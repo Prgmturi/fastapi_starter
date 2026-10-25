@@ -1,0 +1,94 @@
+# =============================================================================
+# Production on one server:
+#   docker compose -f compose.yaml -f compose.prod.yaml up -d
+# =============================================================================
+# Over compose.yaml it changes what a server needs (docs/production.md):
+# - the API and the migrations run the image of a release, not a build;
+# - every password and secret comes from the .env of the server, and compose
+#   refuses to start while one is missing;
+# - Keycloak runs in production mode, without the development realm, on
+#   plain HTTP that only the TLS proxy of the server reaches;
+# - the API and Keycloak listen on 127.0.0.1 only, for that proxy; the
+#   databases on no port of the host;
+# - logs rotate.
+# !reset and !override need Docker Compose 2.24 or later.
+# =============================================================================
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+services:
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env}
+    ports: !reset []
+    logging: *logging
+
+  migrate:
+    build: !reset null
+    image: ${APP_IMAGE:-ghcr.io/prgmturi/fastapi_starter:0.6.1} # x-release-please-version
+    environment:
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env}
+    logging: *logging
+
+  api:
+    build: !reset null
+    image: ${APP_IMAGE:-ghcr.io/prgmturi/fastapi_starter:0.6.1} # x-release-please-version
+    environment:
+      APP_ENVIRONMENT: production
+      APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env}
+      KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:?set KEYCLOAK_PUBLIC_URL in .env, the https address of Keycloak}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:?set KEYCLOAK_CLIENT_SECRET in .env, from Keycloak}
+      KEYCLOAK_ALLOWED_REDIRECT_URIS: ${KEYCLOAK_ALLOWED_REDIRECT_URIS:?set KEYCLOAK_ALLOWED_REDIRECT_URIS in .env}
+      KEYCLOAK_ALLOWED_CLIENTS: ${KEYCLOAK_ALLOWED_CLIENTS:-[]}
+      KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-}
+      SERVER_TRUSTED_HOSTS: ${SERVER_TRUSTED_HOSTS:?set SERVER_TRUSTED_HOSTS in .env, the API's domain}
+      SERVER_CORS_ORIGINS: ${SERVER_CORS_ORIGINS:?set SERVER_CORS_ORIGINS in .env, the frontend's origin}
+      # The proxy on the server reaches the containers from the gateway of
+      # the stack's network (below): uvicorn takes the client's address from
+      # X-Forwarded-For only on connections from that network.
+      SERVER_FORWARDED_ALLOW_IPS: '["${STACK_SUBNET:-172.30.0.0/24}"]'
+    ports: !override
+      - "127.0.0.1:${SERVER_PORT:-8000}:8000"
+    logging: *logging
+
+  keycloak-db:
+    environment:
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in .env}
+    logging: *logging
+
+  keycloak:
+    # Production mode, and no --import-realm: the realm of the server is
+    # created once, on the first start (docs/production.md)
+    command: !override ["start"]
+    volumes: !reset []
+    environment:
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in .env}
+      # Temporary administrator of the first start: create a real one, then
+      # delete this one (docs/production.md)
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:?set KEYCLOAK_ADMIN_USER in .env}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env}
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:?set KEYCLOAK_PUBLIC_URL in .env, the https address of Keycloak}
+      # The console on the server only, reached through an SSH tunnel: the
+      # proxy then never serves /admin/
+      KC_HOSTNAME_ADMIN: ${KEYCLOAK_ADMIN_URL:-http://127.0.0.1:${KEYCLOAK_PORT:-8080}}
+      # TLS ends at the proxy, which sends X-Forwarded-*; Keycloak trusts
+      # those headers from the stack's network only
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_PROXY_TRUSTED_ADDRESSES: ${STACK_SUBNET:-172.30.0.0/24}
+    ports: !override
+      - "127.0.0.1:${KEYCLOAK_PORT:-8080}:8080"
+    logging: *logging
+
+# A known network, so the settings above can name it. Change STACK_SUBNET if
+# it overlaps a network the server already has.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${STACK_SUBNET:-172.30.0.0/24}
