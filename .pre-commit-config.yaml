@@ -1,25 +1,39 @@
-repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.12
-    hooks:
-      - id: ruff
-        args: [--fix]
-      - id: ruff-format
+# "uv run pre-commit install" sets up both: ruff before each commit, the
+# message check once the message is written
+default_install_hook_types: [pre-commit, commit-msg]
 
-  - repo: https://github.com/compilerla/conventional-pre-commit
-    rev: v4.4.0
+# The hooks check what CI checks, with the same tools (tests/test_tooling.py)
+repos:
+  - repo: local
     hooks:
-      - id: conventional-pre-commit
+      # ruff from uv.lock, the version CI runs: the ruff-pre-commit repo pinned
+      # its own (0.15.12 against 0.14.14 in the lock), and a file the hook
+      # accepted could fail CI. "unsupported" (formerly "system"): pre-commit
+      # runs the command as it is, with no environment of its own.
+      - id: ruff
+        name: ruff check
+        entry: uv run --locked ruff check --fix --force-exclude
+        language: unsupported
+        types_or: [python, pyi]
+        require_serial: true
+        stages: [pre-commit]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --locked ruff format --force-exclude
+        language: unsupported
+        types_or: [python, pyi]
+        require_serial: true
+        stages: [pre-commit]
+
+      # commitlint with commitlint.config.js, the rules and the list of types.
+      # CI runs this same hook on every commit of a PR and on its title
+      # (.github/workflows/commits.yml). pre-commit installs these packages
+      # with the Node it finds, or downloads one.
+      - id: commitlint
+        name: commitlint
+        entry: commitlint --edit
+        language: node
+        additional_dependencies:
+          - "@commitlint/cli@20.5.0"
+          - "@commitlint/config-conventional@20.5.0"
         stages: [commit-msg]
-        args:
-          - feat
-          - fix
-          - docs
-          - style
-          - refactor
-          - test
-          - chore
-          - build
-          - ci
-          - perf
-          - revert

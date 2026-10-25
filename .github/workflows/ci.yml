@@ -11,33 +11,12 @@ env:
   # Without a version, setup-uv installs the newest uv.
   UV_VERSION: "0.13.5"
 
+# Every job names its Ubuntu: ubuntu-latest moves to 26.04 between 19 October
+# and 19 November 2026, one repository at a time, so the image would change on
+# a run nobody chose (tests/test_tooling.py). Commit messages: commits.yml.
 jobs:
-  commitlint:
-    name: Lint commit messages
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-
-    permissions:
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          # Fetch full history so commitlint can walk back to the base branch
-          fetch-depth: 0
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "lts/*"
-
-      - name: Install commitlint
-        run: npm install --save-dev @commitlint/cli@20.5.0 @commitlint/config-conventional@20.5.0
-
-      - name: Validate PR commits
-        run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
-
   ci:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     permissions:
       contents: read
@@ -87,7 +66,7 @@ jobs:
 
   integration:
     name: Integration tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     permissions:
       contents: read
@@ -153,7 +132,7 @@ jobs:
 
   docker:
     name: Build container image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     permissions:
       contents: read

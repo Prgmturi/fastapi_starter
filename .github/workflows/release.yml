@@ -10,7 +10,8 @@ permissions: {}
 jobs:
   release-please:
     name: Prepare or tag release
-    runs-on: ubuntu-latest
+    # A named Ubuntu, as in ci.yml: the image changes when we choose
+    runs-on: ubuntu-24.04
 
     permissions:
       contents: write       # create tags and GitHub Releases

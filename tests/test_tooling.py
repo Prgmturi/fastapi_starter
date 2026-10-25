@@ -1,0 +1,102 @@
+"""Tests that the checks run on the machine and with the tools we chose.
+
+WHY these tests exist: every CI job ran on ubuntu-latest, which GitHub
+moves to Ubuntu 26.04 one repository at a time between 19 October and
+19 November 2026, so any run could land on a new image. And the
+pre-commit hooks and CI checked the same things with different tools:
+a file or a commit message the hook accepted could fail CI.
+"""
+
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).parent.parent
+WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+COMMITS_WORKFLOW = ROOT / ".github" / "workflows" / "commits.yml"
+PRE_COMMIT = ROOT / ".pre-commit-config.yaml"
+RUNNER = "ubuntu-24.04"
+PR_TITLE = "${{ github.event.pull_request.title }}"
+
+
+def runners() -> list[str]:
+    """Each runs-on of every workflow, as "file: value"."""
+    return [
+        f"{path.name}: {match.group(1)}"
+        for path in WORKFLOWS
+        for match in re.finditer(r"^\s*runs-on:\s*(\S+)", path.read_text(), re.M)
+    ]
+
+
+class TestRunner:
+    def test_every_job_runs_on_the_pinned_image(self):
+        """[HP] Each job names its Ubuntu, so the image changes when we choose."""
+        assert runners()
+        assert [r for r in runners() if not r.endswith(f": {RUNNER}")] == []
+
+
+class TestRuffHook:
+    def test_hook_runs_the_ruff_of_the_lock(self):
+        """[HP] pre-commit runs ruff through uv, so the version CI runs."""
+        config = PRE_COMMIT.read_text()
+        entries = re.findall(r"^\s*entry:\s*(.+)$", config, re.M)
+        ruff = [entry for entry in entries if "ruff" in entry]
+
+        assert "astral-sh/ruff-pre-commit" not in config
+        assert len(ruff) == 2
+        assert [entry for entry in ruff if not entry.startswith("uv run")] == []
+
+
+class TestCommitMessages:
+    """The hook and CI check commit messages with the same commitlint.
+
+    WHY: the hook ran conventional-pre-commit, CI commitlint, which also
+    refuses a capital letter, a final full stop and body lines over 100
+    characters. Three messages the hook accepted failed CI (25 October
+    2026), and the list of types was written in both.
+    """
+
+    def test_hook_runs_commitlint(self):
+        """[HP] The commit-msg hook is commitlint, with commitlint.config.js."""
+        config = PRE_COMMIT.read_text()
+
+        assert "conventional-pre-commit" not in config
+        assert re.search(r"^\s*entry:\s*commitlint --edit\s*$", config, re.M)
+
+    def test_ci_runs_the_hook_itself(self):
+        """[HP] CI runs the hook on each commit, not a copy of commitlint."""
+        workflows = "".join(path.read_text() for path in WORKFLOWS)
+
+        assert "pre-commit run commitlint --hook-stage commit-msg" in (
+            COMMITS_WORKFLOW.read_text()
+        )
+        assert "npx commitlint" not in workflows
+
+    def test_ci_checks_the_pr_title(self):
+        """[HP] The PR title is checked, and again whenever it is edited.
+
+        WHY: with more than one commit the squash merge takes the PR title
+        as the commit on master (COMMIT_OR_PR_TITLE in the repository
+        settings), and release-please reads that commit.
+        """
+        workflow = COMMITS_WORKFLOW.read_text()
+
+        assert PR_TITLE in workflow
+        assert re.search(r"^\s*types:\s*\[.*\bedited\b.*\]", workflow, re.M)
+
+    def test_pr_title_never_becomes_shell_code(self):
+        """[SEC] The title reaches the script as an environment variable.
+
+        WHY: whoever opens the PR writes the title. Written inside run:,
+        GitHub would paste it into the script before the shell reads it.
+        """
+        lines = [
+            line.strip()
+            for path in WORKFLOWS
+            for line in path.read_text().splitlines()
+            if "github.event.pull_request.title" in line
+        ]
+
+        as_variable = re.compile(r"\w+: " + re.escape(PR_TITLE))
+
+        assert lines
+        assert [line for line in lines if not as_variable.fullmatch(line)] == []

@@ -83,6 +83,7 @@ docker compose -f docker/docker-compose.yaml up -d  # App database (port 5433)
 
 # 4. Install and run
 uv sync
+uv run pre-commit install         # ruff and commitlint on every commit, as CI runs them
 uv run alembic upgrade head
 uv run uvicorn fastapi_starter.main:create_app --factory --reload
 ```

@@ -14,7 +14,7 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
-CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
 DOCKERFILE = ROOT / "docker" / "Dockerfile"
 UV_IMAGE = re.compile(r"COPY --from=ghcr\.io/astral-sh/uv:(\S+) ")
 
@@ -36,10 +36,18 @@ def version_tuple(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split("."))
 
 
-def ci_uv_version() -> str:
-    match = re.search(r'^\s*UV_VERSION: "([^"]+)"$', CI_WORKFLOW.read_text(), re.M)
-    assert match is not None, "ci.yml sets no UV_VERSION"
-    return match.group(1)
+def uv_workflows() -> list[Path]:
+    """The workflows that set up uv."""
+    return [path for path in WORKFLOWS if "astral-sh/setup-uv@" in path.read_text()]
+
+
+def ci_uv_versions() -> dict[str, str]:
+    """UV_VERSION of each workflow that sets up uv, "" where it sets none."""
+    versions = {}
+    for path in uv_workflows():
+        match = re.search(r'^\s*UV_VERSION: "([^"]+)"$', path.read_text(), re.M)
+        versions[path.name] = match.group(1) if match else ""
+    return versions
 
 
 def image_uv_version() -> str:
@@ -81,15 +89,21 @@ class TestUvVersion:
 
     def test_ci_and_image_use_the_same_uv(self):
         """[HP] The uv that checks the lock in CI is the one the image uses."""
-        assert ci_uv_version() == image_uv_version()
+        versions = ci_uv_versions()
+
+        assert versions
+        assert set(versions.values()) == {image_uv_version()}
 
     def test_every_setup_uv_step_uses_the_pinned_version(self):
         """[EC] Without a version, setup-uv installs the newest uv."""
-        workflow = CI_WORKFLOW.read_text()
+        unpinned = [
+            path.name
+            for path in uv_workflows()
+            if path.read_text().count("astral-sh/setup-uv@")
+            != path.read_text().count("version: ${{ env.UV_VERSION }}")
+        ]
 
-        assert workflow.count("astral-sh/setup-uv@") == workflow.count(
-            "version: ${{ env.UV_VERSION }}"
-        )
+        assert unpinned == []
 
     def test_pinned_uv_meets_the_required_version(self):
         """[EC] The pinned uv is allowed by required-version in pyproject.toml.
@@ -102,7 +116,7 @@ class TestUvVersion:
         match = re.fullmatch(r">=(\d+\.\d+\.\d+)", required)
         assert match is not None, required
 
-        assert version_tuple(ci_uv_version()) >= version_tuple(match.group(1))
+        assert version_tuple(image_uv_version()) >= version_tuple(match.group(1))
 
     def test_every_install_checks_the_lock(self):
         """[EC] uv sync fails, in CI and in the image, on a lock out of date.
@@ -112,7 +126,7 @@ class TestUvVersion:
         """
         installs = [
             line.strip()
-            for path in (CI_WORKFLOW, DOCKERFILE)
+            for path in (*WORKFLOWS, DOCKERFILE)
             for line in path.read_text().splitlines()
             if re.search(r"\buv sync\b", line) and not line.lstrip().startswith("#")
         ]
