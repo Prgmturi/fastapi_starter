@@ -214,6 +214,7 @@ Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) pr
 
 Every line the process writes has one format: JSON outside development, with the timestamp, the level and the service fields (`service`, `version`, `environment`), and colorized columns in development. The records of uvicorn, SQLAlchemy and httpx go through the same formatter, with the name of their logger in `logger`; a traceback stays inside its line, in `exception`. `APP_LOG_LEVEL` applies to them too.
 
+- Every request has an id, in all its log lines (`request_id`) and in the `X-Request-ID` response header. A request that comes with an `X-Request-ID` of up to 64 letters, digits, `.`, `_` or `-` keeps it, so the proxy's log and the app's share the id; any other value is replaced with a new one. The proxy must set the header itself, over the client's, or the client picks the id: with Nginx, `proxy_set_header X-Request-ID $request_id;`, and `$request_id` in its `log_format`. CORS exposes the header, so a frontend on another origin can read it, for example to show it with an error.
 - uvicorn's access line is off: `request_completed` says the same, with the request id and the duration, and the access line also carries the query string. To have it back, delete the line that sets `uvicorn.access` to `WARNING` in `core/logging/config.py`.
 - With `--workers` or `--reload`, uvicorn's parent process never calls the app factory, so its few lines (start and stop) keep uvicorn's format. The Docker image runs one process: to scale, run more containers.
 

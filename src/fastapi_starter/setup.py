@@ -29,7 +29,11 @@ from fastapi_starter.core.config import (
 from fastapi_starter.core.database import DatabaseManager, database_url
 from fastapi_starter.core.database.protocols import DatabaseProvider
 from fastapi_starter.core.error_middleware import UnhandledExceptionMiddleware
-from fastapi_starter.core.logging import LoggingMiddleware, get_logger
+from fastapi_starter.core.logging import (
+    REQUEST_ID_HEADER,
+    LoggingMiddleware,
+    get_logger,
+)
 from fastapi_starter.core.security import SecureHeadersMiddleware
 from fastapi_starter.features.auth.client import KeycloakClient
 
@@ -147,6 +151,10 @@ def register_middleware(app: FastAPI, settings: ServerSettings) -> None:
         allow_credentials=settings.cors_allow_credentials,
         allow_methods=settings.cors_allow_methods,
         allow_headers=settings.cors_allow_headers,
+        # The browser hides from JavaScript the headers CORS does not
+        # expose: without this a frontend cannot show the request id of
+        # a failed request.
+        expose_headers=[REQUEST_ID_HEADER],
     )
 
     app.add_middleware(SecureHeadersMiddleware)
