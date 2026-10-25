@@ -61,53 +61,52 @@ src/fastapi_starter/
 
 ## Getting started
 
-**Prerequisites:** Python 3.13, Docker, [uv](https://docs.astral.sh/uv/) 0.13 or later (an older uv stops with an error in this project: run `uv self update`)
+**Prerequisites:** Docker. To work on the code, also Python 3.13 and [uv](https://docs.astral.sh/uv/) 0.13 or later (an older uv stops with an error in this project: run `uv self update`).
 
 ```bash
-# 1. Clone
 git clone https://github.com/Prgmturi/fastapi_starter.git
 cd fastapi_starter
+docker compose up --build --wait
+```
 
-# 2. Configure — three .env files, one per stack.
-# Docker Compose reads .env from the directory of each compose file,
-# so a single .env in the repo root is NOT enough.
-cp .env.example .env              # read by FastAPI
-cp docker/.env.example docker/.env  # app database container
-cp infra/.env.example infra/.env    # Keycloak + its database container
-# Fill in KEYCLOAK_CLIENT_SECRET after completing the Keycloak setup below.
-# Keep DATABASE_* in .env and APP_DB_* in docker/.env in sync — they
-# describe the same database, and the compose files refuse to start if
-# a required variable is missing.
+That starts the whole stack of `compose.yaml`, with development values and no `.env` to write:
 
-# 3. Start infrastructure
-docker compose -f infra/docker-compose.yml up -d    # Keycloak + its database
-docker compose -f docker/docker-compose.yaml up -d  # App database (port 5433)
+| Service | On the host | What it is |
+|---|---|---|
+| `api` | http://localhost:8000, docs at `/docs` | the app, built from `docker/Dockerfile` |
+| `migrate` | | `alembic upgrade head`, then it exits; the API starts only after it succeeds |
+| `db` | `localhost:5433` | the app's Postgres |
+| `keycloak` | http://localhost:8080, console user `admin`, password `admin` | Keycloak, in development mode |
+| `keycloak-db` | | Keycloak's Postgres |
 
-# 4. Install and run
+`uv run pytest -m e2e` logs the test user in through Keycloak and calls the API with the token, as a frontend would (CI does it on every push). The ports come from `SERVER_PORT`, `KEYCLOAK_PORT` and `DATABASE_PORT`, exported or in `.env`.
+
+### Keycloak
+
+On its first start Keycloak imports the realm of `docker/keycloak/realm-dev.json`:
+
+- realm `fastapi-starter`, with the roles `superadmin`, `admin`, `collaborator` and `user`
+- client `fastapi-backend`: confidential, standard flow only, redirect URIs `http://localhost:*`, secret `fastapi-backend-dev-secret`
+- user `testuser`, password `testuser-dev-password`, role `user`
+
+These values are public, so the realm is for development only: with `APP_ENVIRONMENT=production` the app refuses that secret. Changes made in the console stay in Keycloak's volume, and a realm that already exists is not imported again. To start again from the file, remove Keycloak's volume: `docker compose down`, then `docker volume rm <project>_keycloak_db_data`, where `<project>` is the folder name; the app's data is in another volume.
+
+To have the API check `aud`: in the client's *Client scopes* tab open `fastapi-backend-dedicated` and add a mapper of type *Audience*, with *Included Client Audience* `fastapi-backend` and *Add to access token* on. Then set `KEYCLOAK_AUDIENCE=fastapi-backend`.
+
+### Working on the code
+
+Run the app on the host, with Postgres and Keycloak from the stack:
+
+```bash
 uv sync
 uv run pre-commit install         # ruff and commitlint on every commit, as CI runs them
+cp .env.example .env              # the stack's values, as the host sees them
+docker compose up --wait db keycloak
 uv run alembic upgrade head
 uv run uvicorn fastapi_starter.main:create_app --factory --reload
 ```
 
 Open http://localhost:8000/docs.
-
-### Keycloak setup (first time)
-
-1. Open http://localhost:8080 → log in with the credentials from
-   `infra/.env` (`KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD`)
-2. Create realm: `fastapi-starter`
-3. Create client: `fastapi-backend`
-   - Client authentication: **ON**
-   - Standard flow: **ON**
-   - Valid redirect URIs: `http://localhost:*`
-4. Copy the client secret → `.env` → `KEYCLOAK_CLIENT_SECRET`
-5. Create roles: `superadmin`, `admin`, `collaborator`, `user`
-6. Create a test user and assign a role
-7. Optional — to have the API check `aud`: in the client's *Client scopes*
-   tab open `fastapi-backend-dedicated` and add a mapper of type *Audience*,
-   with *Included Client Audience* `fastapi-backend` and *Add to access token*
-   on. Then set `KEYCLOAK_AUDIENCE=fastapi-backend` in `.env`.
 
 ## Authentication flow
 
@@ -228,11 +227,12 @@ Every line the process writes has one format: JSON outside development, with the
 ## Running tests
 
 ```bash
-uv run pytest                              # all tests but the integration ones
+uv run pytest                              # all tests but the integration and end-to-end ones
 uv run pytest tests/core/auth/            # a module
 uv run pytest tests/core/auth/test_service.py::TestValidateToken  # one class
 uv run pytest --cov                        # with coverage, as CI runs it
 uv run pytest -m integration               # only the integration tests, on a real Postgres
+uv run pytest -m e2e                       # a login through the running stack (docker compose up)
 ```
 
 Tests are fully async. Outside `tests/integration/` they use `AsyncMock` stubs — no real database or Keycloak instance needed. The root `conftest.py` provides fixtures for the app, HTTP client, mock services, and sample users at different role levels.
@@ -241,10 +241,10 @@ Tests never read your local `.env` or exported `APP_*`, `KEYCLOAK_*` variables: 
 
 ### Integration tests
 
-The tests in `tests/integration/` run on a real Postgres, for what a mock cannot show, such as a commit that the database refuses. `uv run pytest` leaves them out, even when you name their file; add `-m integration`, which runs only them. They read `TEST_DATABASE_*` (exported or in `.env`, see `.env.example`) and no other setting, and they refuse a database whose name does not end in `_test`, because they create and drop tables in it. Create that database once, in the app database container:
+The tests in `tests/integration/` run on a real Postgres, for what a mock cannot show, such as a commit that the database refuses. `uv run pytest` leaves them out, even when you name their file; add `-m integration`, which runs only them. They read `TEST_DATABASE_*` (exported or in `.env`, see `.env.example`) and no other setting, and they refuse a database whose name does not end in `_test`, because they create and drop tables in it. Create that database once, in the `db` service of the stack:
 
 ```bash
-docker exec app-db createdb -U appbase appbase_test   # -U: APP_DB_USER in docker/.env
+docker compose exec db createdb -U appbase appbase_test   # -U: DATABASE_USER
 ```
 
 CI runs them in a job of their own, with its own Postgres. They do not count towards the coverage threshold.
@@ -310,7 +310,7 @@ uv run alembic upgrade head
 uv run alembic downgrade -1
 ```
 
-Migrations read `DATABASE_*` and no other setting, so a deploy runs `uv run alembic upgrade head` against the production database before it starts the new version, without the rest of the configuration. CI runs every migration up to head, compares the result with the models (`alembic check`: a model changed without its migration fails the build), then down to the base and up again.
+Migrations read `DATABASE_*` and no other setting, so they run before the new version starts, without the rest of the configuration: in `compose.yaml` the `migrate` service runs `alembic upgrade head` from the app's image, and the API starts only after it succeeds. CI runs every migration up to head, compares the result with the models (`alembic check`: a model changed without its migration fails the build), then down to the base and up again.
 
 Define models by subclassing `Base` from `core/database/base.py`. Import them in `alembic/env.py` before running autogenerate — if you forget, `--autogenerate` aborts with an explanation instead of emitting a migration that drops every table in the database.
 
@@ -319,12 +319,12 @@ Indexes and constraints get their names from the naming convention in `core/data
 ## Configuration reference
 
 All application settings are read from `.env` in the repo root — see
-`.env.example` for the full list. The two compose stacks read their own
-`docker/.env` and `infra/.env`.
+`.env.example` for the full list. `compose.yaml` reads from the same file
+only the ports and the database credentials; the `api` service gets the
+rest of its settings in `compose.yaml` itself.
 
-Two separate PostgreSQL instances:
-- **App DB** — port `5433` (`docker/docker-compose.yaml`)
-- **Keycloak DB** — internal to `infra/docker-compose.yml`
+Two Postgres instances in `compose.yaml`: `db`, the app's, on
+`DATABASE_PORT` (5433), and `keycloak-db`, reachable only inside the stack.
 
 Key environment variables:
 

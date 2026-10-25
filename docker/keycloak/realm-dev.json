@@ -1,0 +1,43 @@
+{
+  "realm": "fastapi-starter",
+  "enabled": true,
+  "displayName": "fastapi-starter (development)",
+  "roles": {
+    "realm": [
+      { "name": "superadmin", "description": "Passes every role check" },
+      { "name": "admin", "description": "AdminUser: admin and superadmin" },
+      { "name": "collaborator", "description": "CollabUser: collaborator, admin and superadmin" },
+      { "name": "user", "description": "A user of the app, outside the hierarchy" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "fastapi-backend",
+      "name": "fastapi-starter API",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "fastapi-backend-dev-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:*"]
+    }
+  ],
+  "users": [
+    {
+      "username": "testuser",
+      "enabled": true,
+      "email": "testuser@example.com",
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        { "type": "password", "value": "testuser-dev-password", "temporary": false }
+      ],
+      "realmRoles": ["default-roles-fastapi-starter", "user"]
+    }
+  ]
+}

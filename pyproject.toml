@@ -27,6 +27,7 @@ dev = [
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",
     "pytest-mock>=3.14.0",
+    "pyyaml>=6.0",
     "ruff>=0.14.10",
 ]
 
@@ -164,11 +165,13 @@ those. An httpx exception reaching a router is a bug in the adapter."""
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-# The integration tests need a real Postgres, so a plain "pytest" leaves them
-# out. "pytest -m integration" runs only them: the last -m wins.
-addopts = ["-v", "--tb=short", "-m", "not integration"]
+# The integration tests need a real Postgres and the end-to-end ones the
+# running stack, so a plain "pytest" leaves them out. "pytest -m integration"
+# or "pytest -m e2e" runs only those: the last -m wins.
+addopts = ["-v", "--tb=short", "-m", "not integration and not e2e"]
 markers = [
     "integration: needs a real Postgres (TEST_DATABASE_*); every test in tests/integration/",
+    "e2e: needs the stack of compose.yaml running; every test in tests/e2e/",
 ]
 # pytest 9: a typo in a marker or in this section becomes an error instead
 # of a warning (strict_markers, strict_config). Also enables strict_xfail

@@ -130,6 +130,39 @@ jobs:
       - name: Integration tests
         run: uv run pytest -m integration --tb=short
 
+  e2e:
+    name: Log in through the whole stack
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # As from a clean clone: no .env, every value from compose.yaml.
+      # --wait returns once every service is healthy and migrate has exited.
+      - name: Start the stack
+        run: docker compose up --build --wait --wait-timeout 300
+
+      # tests/e2e: a browser's login through Keycloak, then the API with the
+      # token, the refresh cookie and the logout
+      - name: Log in through Keycloak
+        run: uv run pytest -m e2e --tb=short
+
+      - name: Logs of the stack
+        if: failure()
+        run: docker compose logs --no-color
+
   docker:
     name: Build container image
     runs-on: ubuntu-24.04
