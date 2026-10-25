@@ -183,6 +183,8 @@ async def delete_user(user: Annotated[User, Depends(require_roles([RoleEnum.SUPE
 
 Roles form a hierarchy: superadmin > admin > collaborator. `SuperAdminUser`, `AdminUser` and `CollabUser` let through their role and every role above it; `user` is not part of the hierarchy. `require_roles` lets through only the roles you list, and a role that does not exist stops the app at startup. A user without the role gets 403 with `"detail": "Permission denied"`: the response does not say which roles were needed.
 
+A role in the token that `RoleEnum` does not know is skipped. The first time a role shows up, the app logs it as the warning `unknown_role_skipped`, with its name, so a role written wrong in Keycloak shows up in the logs and not only as a 403. The roles Keycloak gives every user, `offline_access`, `uma_authorization` and `default-roles-<realm>`, are skipped without a line.
+
 ## Errors
 
 Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem document, sent as `application/problem+json`:

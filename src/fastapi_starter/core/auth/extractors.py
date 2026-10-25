@@ -9,6 +9,18 @@ from fastapi_starter.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Keycloak gives every user of the realm offline_access, uma_authorization
+# and the composite role default-roles-<realm>. They are not ours, and every
+# token carries them: a line for them would come with every request.
+KEYCLOAK_DEFAULT_ROLES = frozenset({"offline_access", "uma_authorization"})
+KEYCLOAK_DEFAULT_ROLE_PREFIX = "default-roles-"
+
+
+def is_keycloak_default_role(role: str) -> bool:
+    if role in KEYCLOAK_DEFAULT_ROLES:
+        return True
+    return role.startswith(KEYCLOAK_DEFAULT_ROLE_PREFIX)
+
 
 class TokenPayload(BaseModel):
     """Keycloak-specific JWT payload.
@@ -55,6 +67,11 @@ class KeycloakClaimExtractor:
 
     def __init__(self, client_id: str) -> None:
         self._client_id = client_id
+        # Unknown roles already logged. One warning per role is enough to
+        # notice a role written wrong in Keycloak, and realm roles are
+        # shared with the other apps of the realm: a warning for theirs on
+        # every request would bury everything else.
+        self._reported_roles: set[str] = set()
 
     def extract_user(self, claims: dict[str, Any]) -> User:
         """
@@ -106,6 +123,13 @@ class KeycloakClaimExtractor:
             try:
                 result.append(RoleEnum(role_str))
             except ValueError:
-                logger.debug("unknown_role_skipped", role=role_str)
+                self._report_unknown_role(role_str)
 
         return result
+
+    def _report_unknown_role(self, role: str) -> None:
+        """Warn the first time a role shows up, unless Keycloak gives it to all."""
+        if is_keycloak_default_role(role) or role in self._reported_roles:
+            return
+        self._reported_roles.add(role)
+        logger.warning("unknown_role_skipped", role=role)

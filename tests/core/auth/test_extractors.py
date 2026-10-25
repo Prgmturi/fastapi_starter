@@ -9,6 +9,8 @@ into our domain User. If this breaks, authentication silently fails or grants
 wrong roles.
 """
 
+from unittest.mock import MagicMock, call
+
 import pytest
 
 from fastapi_starter.core.auth.extractors import KeycloakClaimExtractor
@@ -22,6 +24,25 @@ CLIENT_ID = "test-client"
 @pytest.fixture
 def extractor() -> KeycloakClaimExtractor:
     return KeycloakClaimExtractor(client_id=CLIENT_ID)
+
+
+@pytest.fixture
+def logger(monkeypatch) -> MagicMock:
+    """The logger of the extractors module, replaced.
+
+    WHY a fake logger: module loggers are cached on first use
+    (cache_logger_on_first_use), so capture_logs cannot see them.
+    """
+    fake = MagicMock()
+    monkeypatch.setattr("fastapi_starter.core.auth.extractors.logger", fake)
+    return fake
+
+
+def with_roles(claims, realm=(), client=()):
+    """The claims, with these realm roles and roles of our client."""
+    claims["realm_access"] = {"roles": list(realm)}
+    claims["resource_access"] = {CLIENT_ID: {"roles": list(client)}}
+    return claims
 
 
 class TestExtractUser:
@@ -162,8 +183,7 @@ class TestCollectRoles:
 
     WHY: Keycloak stores roles in two places (realm-level and client-level).
     We must verify both sources are merged, duplicates removed, and
-    unknown roles (from Keycloak defaults like 'uma_authorization') are
-    silently skipped.
+    unknown roles skipped: TestUnknownRoles covers what gets logged.
     """
 
     def test_realm_roles_collected(self, extractor, sample_claims):
@@ -249,6 +269,57 @@ class TestCollectRoles:
 
         assert RoleEnum.ADMIN not in user.roles
         assert RoleEnum.USER in user.roles
+
+
+class TestUnknownRoles:
+    """What the logs say about a role that RoleEnum does not know.
+
+    WHY these tests exist: a role written wrong in Keycloak ("admn") was
+    skipped with a DEBUG line, which INFO does not show: the user got 403
+    and nothing in the logs said why.
+    """
+
+    def test_unknown_role_is_a_warning(self, extractor, sample_claims, logger):
+        """[HP] A role we do not know is logged as a warning, with its name."""
+        extractor.extract_user(with_roles(sample_claims, realm=["admn", "user"]))
+
+        logger.warning.assert_called_once_with("unknown_role_skipped", role="admn")
+
+    def test_each_role_is_reported_once(self, extractor, sample_claims, logger):
+        """[EC] An unknown role seen again in later tokens is not logged again.
+
+        WHY: realm roles are shared by every app of the realm. With roles
+        of other apps, a warning per token would come with every request.
+        """
+        for _ in range(3):
+            extractor.extract_user(with_roles(sample_claims, realm=["reports-viewer"]))
+        extractor.extract_user(with_roles(sample_claims, client=["admn"]))
+
+        assert logger.warning.call_args_list == [
+            call("unknown_role_skipped", role="reports-viewer"),
+            call("unknown_role_skipped", role="admn"),
+        ]
+
+    def test_keycloak_default_roles_are_silent(self, extractor, sample_claims, logger):
+        """[EC] The roles Keycloak gives every user leave no line at all.
+
+        WHY: every token has them (testuser of the local realm has these
+        three), so even a DEBUG line for them would come with every request.
+        """
+        claims = with_roles(
+            sample_claims,
+            realm=[
+                "offline_access",
+                "uma_authorization",
+                "default-roles-fastapi-starter",
+                "user",
+            ],
+        )
+
+        user = extractor.extract_user(claims)
+
+        assert user.roles == [RoleEnum.USER]
+        assert logger.method_calls == []
 
 
 class TestClaimExtractorProtocol:
