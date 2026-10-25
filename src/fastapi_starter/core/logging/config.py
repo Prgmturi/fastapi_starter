@@ -10,10 +10,19 @@ from fastapi_starter.core.logging.processors import (
     make_service_info_processor,
 )
 
+# uvicorn sets these up before it calls the app factory: each one gets its
+# own handler and text format, and keeps its records from the root logger.
+UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
+
 
 def get_processors(
     environment: str, app_name: str = "", version: str = ""
 ) -> list[Processor]:
+    """Processors that fill in an event, all but the renderer.
+
+    The same ones run for structlog's loggers and for the records of the
+    standard logging module (uvicorn, SQLAlchemy, httpx).
+    """
     if environment == "development":
         # Development: minimal, colorized, human-readable output.
         # No service info or callsite - keep it clean for local work.
@@ -23,10 +32,6 @@ def get_processors(
             structlog.processors.TimeStamper(fmt="%H:%M:%S"),
             clean_event_dict,
             drop_color_message_key,
-            structlog.dev.ConsoleRenderer(
-                colors=True,
-                exception_formatter=structlog.dev.plain_traceback,
-            ),
         ]
     else:
         # Production/Staging: JSON with full metadata for log aggregation.
@@ -45,8 +50,17 @@ def get_processors(
             clean_event_dict,
             drop_color_message_key,
             structlog.processors.format_exc_info,
-            structlog.processors.JSONRenderer(),
         ]
+
+
+def get_renderer(environment: str) -> Processor:
+    """The last processor: it turns the event into the line written."""
+    if environment == "development":
+        return structlog.dev.ConsoleRenderer(
+            colors=True,
+            exception_formatter=structlog.dev.plain_traceback,
+        )
+    return structlog.processors.JSONRenderer()
 
 
 def configure_logging(
@@ -58,7 +72,8 @@ def configure_logging(
     """
     Configure the logging system for the entire application.
 
-    Must be called ONCE at application startup, before any logging.
+    Must be called ONCE at application startup, before any logging. The
+    records of the libraries, uvicorn's included, get the same format.
 
     Args:
         environment: "development", "staging", or "production"
@@ -84,27 +99,49 @@ def configure_logging(
 
     # Build processors for the environment
     processors = get_processors(environment, app_name, version)
+    renderer = get_renderer(environment)
 
     # Configure structlog
     structlog.configure(
-        processors=processors,
+        processors=[*processors, renderer],
         wrapper_class=structlog.make_filtering_bound_logger(level),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,
     )
 
-    # Configure standard Python logging (for external libraries).
-    # This ensures uvicorn, sqlalchemy, httpx, etc. use the same format.
+    # Configure standard Python logging (for external libraries): their
+    # records go through the same processors and renderer as structlog's,
+    # so uvicorn, sqlalchemy, httpx, etc. write lines in the same format.
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(level)
-    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.setFormatter(
+        structlog.stdlib.ProcessorFormatter(
+            # First: the logger name comes from the record, which
+            # clean_event_dict removes from the event.
+            foreign_pre_chain=[structlog.stdlib.add_logger_name, *processors],
+            processors=[renderer],
+        )
+    )
 
     root_logger.addHandler(handler)
     root_logger.setLevel(level)
+
+    # uvicorn configured its loggers before calling the app factory: take
+    # their handlers away, so their records reach the root handler.
+    for name in UVICORN_LOGGERS:
+        uvicorn_logger = logging.getLogger(name)
+        uvicorn_logger.handlers.clear()
+        uvicorn_logger.propagate = True
+
+    # request_completed says what uvicorn's access line says, with the
+    # request id and the duration, and the access line also carries the
+    # query string, which can hold personal data. Delete this line to have
+    # it back.
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
     # Silence overly verbose libraries
     logging.getLogger("httpcore").setLevel(logging.WARNING)

@@ -15,7 +15,7 @@ A backend template built with FastAPI to learn and apply real architectural patt
 | **Architecture** | Hexagonal (Ports & Adapters). Core logic talks only to protocols — swap Keycloak for Auth0 without touching `AuthService`. |
 | **Database** | Async PostgreSQL with SQLAlchemy 2.0. Connection pooling, session lifecycle, base repository pattern. |
 | **Config** | Pydantic Settings, layered by domain (`AppSettings`, `DatabaseSettings`, etc.), loaded from `.env`. |
-| **Logging** | structlog. JSON in production with service metadata, colorized in development. Request IDs on every log line. |
+| **Logging** | structlog. One format for every line, uvicorn's and SQLAlchemy's too: JSON in production with service metadata, colorized in development. Request IDs on every log line. |
 | **Errors** | One format for every error: RFC 9457 problem details (`application/problem+json`). Domain exceptions (`NotFoundError`, `UnauthorizedError`, ...) with global handlers; no internal details reach the client. |
 | **Testing** | Fully async. The unit tests need no database or auth server and ignore the local `.env`; the integration tests run on a real Postgres, in CI too. CI fails below a coverage threshold. |
 
@@ -183,6 +183,8 @@ async def delete_user(user: Annotated[User, Depends(require_roles([RoleEnum.SUPE
 
 Roles form a hierarchy: superadmin > admin > collaborator. `SuperAdminUser`, `AdminUser` and `CollabUser` let through their role and every role above it; `user` is not part of the hierarchy. `require_roles` lets through only the roles you list, and a role that does not exist stops the app at startup. A user without the role gets 403 with `"detail": "Permission denied"`: the response does not say which roles were needed.
 
+A role in the token that `RoleEnum` does not know is skipped. The first time a role shows up, the app logs it as the warning `unknown_role_skipped`, with its name, so a role written wrong in Keycloak shows up in the logs and not only as a 403. The roles Keycloak gives every user, `offline_access`, `uma_authorization` and `default-roles-<realm>`, are skipped without a line.
+
 ## Errors
 
 Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem document, sent as `application/problem+json`:
@@ -202,13 +204,23 @@ Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) pr
 - An invalid request (422) adds `errors`, one entry per invalid field: `{"loc": ["query", "limit"], "msg": "Input should be a valid integer, …", "type": "int_parsing"}`. The rejected value is not sent back.
 - To return an error from your code, raise a subclass of `AppExceptionError` from `core/exceptions.py` (`NotFoundError`, `ConflictError`, `ForbiddenError`, …). Its `details` become extra members, like `resource` and `identifier` above.
 - OpenAPI documents this format as the `default` response of every route.
-- Every response, 500 included, has an `X-Request-ID` header: the logs of that request carry the same id. An unexpected error answers only `"An unexpected error occurred."`; the cause and the traceback go to the logs, also with `APP_DEBUG=true`.
+- Every response has an `X-Request-ID` header, a 500 from a route included: the logs of that request carry the same id. The exception is a 500 caused by a bug in a middleware: Starlette answers it outside every middleware, so it has none of their headers, and only its log lines carry the id. An unexpected error answers only `"An unexpected error occurred."`; the cause and the traceback go to the logs, also with `APP_DEBUG=true`.
 
 ## Health checks
 
 - `GET /health/live` answers 200 while the process runs. The Docker `HEALTHCHECK` calls it with `python -m fastapi_starter.healthcheck`, which sends the first `SERVER_TRUSTED_HOSTS` entry as `Host` and `SERVER_PORT` as port: the probe passes the trusted-host check that real requests pass.
 - `GET /health/ready` answers 200 when the instance can serve requests and 503 when a check fails. The body is a status report, not a problem document, and gives only the status of each check: `{"status": "unhealthy", "checks": {"database": {"status": "unhealthy"}, "auth": {"status": "healthy"}}}`. The endpoint needs no token, so the cause goes to the logs only, as `readiness_check_failed`. A check that takes more than 2 seconds counts as failed.
 - The auth check does not call Keycloak: it passes while the signing keys are cached. If Keycloak goes down, the instances keep validating tokens with those keys and stay ready.
+
+## Logs
+
+Every line the process writes has one format: JSON outside development, with the timestamp, the level and the service fields (`service`, `version`, `environment`), and colorized columns in development. The records of uvicorn, SQLAlchemy and httpx go through the same formatter, with the name of their logger in `logger`; a traceback stays inside its line, in `exception`. `APP_LOG_LEVEL` applies to them too.
+
+- Every request has an id, in all its log lines (`request_id`) and in the `X-Request-ID` response header. A request that comes with an `X-Request-ID` of up to 64 letters, digits, `.`, `_` or `-` keeps it, so the proxy's log and the app's share the id; any other value is replaced with a new one. The proxy must set the header itself, over the client's, or the client picks the id: with Nginx, `proxy_set_header X-Request-ID $request_id;`, and `$request_id` in its `log_format`. CORS exposes the header, so a frontend on another origin can read it, for example to show it with an error.
+- `request_started` names the client, with `client_ip` and `user_agent`. The query string is not logged: it can hold personal data or tokens. The request lines of the health probes (`/health/...`) are DEBUG, since Docker's `HEALTHCHECK` alone would write two lines every 30 seconds.
+- Behind a proxy, uvicorn takes the client's address from `X-Forwarded-For` only on connections from an address in `FORWARDED_ALLOW_IPS`, by default `127.0.0.1`. In a container the proxy has another address: set `FORWARDED_ALLOW_IPS` to it, or to its network (`172.18.0.0/16`), or `client_ip` is always the proxy's. uvicorn reads it from the environment of the process, not from `.env`. Never `*` while the port can be reached without the proxy: anyone could choose the address the logs show.
+- uvicorn's access line is off: `request_completed` says the same, with the request id and the duration, and the access line also carries the query string. To have it back, delete the line that sets `uvicorn.access` to `WARNING` in `core/logging/config.py`.
+- With `--workers` or `--reload`, uvicorn's parent process never calls the app factory, so its few lines (start and stop) keep uvicorn's format. The Docker image runs one process: to scale, run more containers.
 
 ## Running tests
 
@@ -323,6 +335,8 @@ KEYCLOAK_PUBLIC_URL=                # production: the address the browser sees, 
 SERVER_CORS_ORIGINS=["http://localhost:3000"]
 SERVER_MAX_BODY_SIZE=65536         # bytes; a larger request body gets 413
 ```
+
+Behind a proxy, also `FORWARDED_ALLOW_IPS`, which uvicorn reads from the environment of the process, not from `.env`: see [Logs](#logs).
 
 `/docs`, `/redoc`, and `/openapi.json` are only available when `APP_ENVIRONMENT=development`.
 
