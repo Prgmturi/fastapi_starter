@@ -36,6 +36,7 @@ from fastapi_starter.core.logging import (
 )
 from fastapi_starter.core.security import SecureHeadersMiddleware
 from fastapi_starter.features.auth.client import KeycloakClient
+from fastapi_starter.features.health.router import health_router
 
 logger = get_logger(__name__)
 
@@ -164,5 +165,7 @@ def register_middleware(app: FastAPI, settings: ServerSettings) -> None:
         allowed_hosts=settings.trusted_hosts,
     )
 
-    # Outermost: sees every request first and every response last
-    app.add_middleware(LoggingMiddleware)
+    # Outermost: sees every request first and every response last. Docker's
+    # HEALTHCHECK and the orchestrator call the health probes all day:
+    # their request lines go to DEBUG.
+    app.add_middleware(LoggingMiddleware, quiet_prefixes=[health_router.prefix])

@@ -1,11 +1,13 @@
 import re
 import time
 import uuid
+from collections.abc import Sequence
 
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.types import ASGIApp
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
 REQUEST_ID_HEADER = "X-Request-ID"
@@ -41,10 +43,23 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 
     Example output:
         {"event": "request_started", "request_id": "abc-123", "method": "GET",
-        "path": "/users"}
+        "path": "/users", "client_ip": "203.0.113.7", "user_agent": "curl/8.5"}
         {"event": "request_completed", "request_id": "abc-123", "status_code": 200,
         "duration_ms": 45}
+
+    Requests to the paths under ``quiet_prefixes``, such as health probes
+    called every few seconds, log these two lines at DEBUG.
     """
+
+    def __init__(self, app: ASGIApp, quiet_prefixes: Sequence[str] = ()) -> None:
+        super().__init__(app)
+        self.quiet_prefixes = tuple(quiet_prefixes)
+
+    def is_quiet(self, path: str) -> bool:
+        return any(
+            path == prefix or path.startswith(f"{prefix}/")
+            for prefix in self.quiet_prefixes
+        )
 
     async def dispatch(
         self,
@@ -65,19 +80,24 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         )
 
         logger = structlog.get_logger()
+        log = logger.debug if self.is_quiet(request.url.path) else logger.info
 
         start_time = time.perf_counter()
 
-        logger.info(
+        # Not the query string: it can hold personal data or tokens.
+        # request.client is the address uvicorn decided on: behind a proxy
+        # in FORWARDED_ALLOW_IPS, the one in X-Forwarded-For.
+        log(
             "request_started",
-            query_params=dict(request.query_params) if request.query_params else None,
+            client_ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
         )
 
         response = await call_next(request)
 
         duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
-        logger.info(
+        log(
             "request_completed",
             status_code=response.status_code,
             duration_ms=duration_ms,

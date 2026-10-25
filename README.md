@@ -215,6 +215,8 @@ Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) pr
 Every line the process writes has one format: JSON outside development, with the timestamp, the level and the service fields (`service`, `version`, `environment`), and colorized columns in development. The records of uvicorn, SQLAlchemy and httpx go through the same formatter, with the name of their logger in `logger`; a traceback stays inside its line, in `exception`. `APP_LOG_LEVEL` applies to them too.
 
 - Every request has an id, in all its log lines (`request_id`) and in the `X-Request-ID` response header. A request that comes with an `X-Request-ID` of up to 64 letters, digits, `.`, `_` or `-` keeps it, so the proxy's log and the app's share the id; any other value is replaced with a new one. The proxy must set the header itself, over the client's, or the client picks the id: with Nginx, `proxy_set_header X-Request-ID $request_id;`, and `$request_id` in its `log_format`. CORS exposes the header, so a frontend on another origin can read it, for example to show it with an error.
+- `request_started` names the client, with `client_ip` and `user_agent`. The query string is not logged: it can hold personal data or tokens. The request lines of the health probes (`/health/...`) are DEBUG, since Docker's `HEALTHCHECK` alone would write two lines every 30 seconds.
+- Behind a proxy, uvicorn takes the client's address from `X-Forwarded-For` only on connections from an address in `FORWARDED_ALLOW_IPS`, by default `127.0.0.1`. In a container the proxy has another address: set `FORWARDED_ALLOW_IPS` to it, or to its network (`172.18.0.0/16`), or `client_ip` is always the proxy's. uvicorn reads it from the environment of the process, not from `.env`. Never `*` while the port can be reached without the proxy: anyone could choose the address the logs show.
 - uvicorn's access line is off: `request_completed` says the same, with the request id and the duration, and the access line also carries the query string. To have it back, delete the line that sets `uvicorn.access` to `WARNING` in `core/logging/config.py`.
 - With `--workers` or `--reload`, uvicorn's parent process never calls the app factory, so its few lines (start and stop) keep uvicorn's format. The Docker image runs one process: to scale, run more containers.
 
@@ -331,6 +333,8 @@ KEYCLOAK_PUBLIC_URL=                # production: the address the browser sees, 
 SERVER_CORS_ORIGINS=["http://localhost:3000"]
 SERVER_MAX_BODY_SIZE=65536         # bytes; a larger request body gets 413
 ```
+
+Behind a proxy, also `FORWARDED_ALLOW_IPS`, which uvicorn reads from the environment of the process, not from `.env`: see [Logs](#logs).
 
 `/docs`, `/redoc`, and `/openapi.json` are only available when `APP_ENVIRONMENT=development`.
 
