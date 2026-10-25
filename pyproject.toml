@@ -38,6 +38,14 @@ build-backend = "hatchling.build"
 packages = ["src/fastapi_starter"]
 
 # =============================================================================
+# UV - one version in CI and in the image, checked by tests/test_lockfile.py
+# =============================================================================
+[tool.uv]
+# uv 0.12 and older rewrite uv.lock in an older format as soon as anything in
+# it changes. CI and docker/Dockerfile pin an exact version, at least this one.
+required-version = ">=0.13.0"
+
+# =============================================================================
 # RUFF - Linting & Formatting
 # =============================================================================
 [tool.ruff]

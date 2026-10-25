@@ -59,7 +59,7 @@ src/fastapi_starter/
 
 ## Getting started
 
-**Prerequisites:** Python 3.13, Docker, [uv](https://docs.astral.sh/uv/)
+**Prerequisites:** Python 3.13, Docker, [uv](https://docs.astral.sh/uv/) 0.13 or later (an older uv stops with an error in this project: run `uv self update`)
 
 ```bash
 # 1. Clone

@@ -9,9 +9,9 @@ WORKDIR /app
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1
 
-# Pinniamo la versione di uv — mai usare :latest in produzione.
-# La versione cambia silenziosamente e può rompere la build.
-COPY --from=ghcr.io/astral-sh/uv:0.7.8 /uv /usr/local/bin/uv
+# The same uv as UV_VERSION in .github/workflows/ci.yml (tests/test_lockfile.py):
+# the lock CI checks is the lock the image installs.
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /usr/local/bin/uv
 
 # README.md va copiato insieme al pyproject: [project] dichiara
 # readme = "README.md" e hatchling lo legge in fase di build.
@@ -19,15 +19,13 @@ COPY --from=ghcr.io/astral-sh/uv:0.7.8 /uv /usr/local/bin/uv
 #   OSError: Readme file does not exist: README.md
 COPY pyproject.toml uv.lock README.md ./
 
-# --frozen: usa esattamente uv.lock, non aggiorna niente.
-#   Garantisce build riproducibili — stessa build oggi e fra 6 mesi.
-# --no-install-project: installa solo le dipendenze, non il tuo pacchetto.
-#   Perché? Il codice sorgente non è ancora stato copiato.
-#   Se lo facessimo dopo il COPY src, ogni modifica al codice
-#   invaliderebbe questo layer cache e rinstallare tutto.
-# --no-dev: esclude il dependency-group dev (pytest, mypy, ruff, pre-commit).
-#   Non servono a runtime e allargherebbero la superficie dell'immagine.
-RUN uv sync --frozen --no-install-project --no-dev
+# --locked: installs exactly what uv.lock says, and stops if the lock is out
+#   of date with pyproject.toml. The same build today and in six months.
+# --no-install-project: only the dependencies, not the project, whose code
+#   is not copied yet. A change to the code then leaves this layer cached.
+# --no-dev: without the dev group (pytest, mypy, ruff, pre-commit), which
+#   the app does not need to run.
+RUN uv sync --locked --no-install-project --no-dev
 
 # Solo ora copiamo il codice sorgente.
 # Questo layer cambia ad ogni modifica del codice — è giusto che sia qui,
@@ -39,7 +37,7 @@ COPY alembic.ini ./
 # Ora installiamo anche il progetto stesso (fastapi_starter come package).
 # uv legge [build-system] e [tool.hatch.build.targets.wheel] dal pyproject.toml
 # e installa src/fastapi_starter come package editabile nel .venv.
-RUN uv sync --frozen --no-dev
+RUN uv sync --locked --no-dev
 
 
 # =============================================================================
