@@ -14,10 +14,14 @@ import uuid
 
 import pytest
 import structlog
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from starlette.middleware.base import BaseHTTPMiddleware
 from structlog.contextvars import merge_contextvars
 from structlog.testing import capture_logs
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+from fastapi_starter.core.logging import LoggingMiddleware
 
 REQUEST_LINES = ("request_started", "request_completed")
 
@@ -189,6 +193,65 @@ class TestProbes:
         _, lines = await get_logged(client, "/healthz")
 
         assert [line["log_level"] for line in lines] == ["info", "info"]
+
+
+class BrokenMiddleware(BaseHTTPMiddleware):
+    """Any middleware between LoggingMiddleware and the error middleware."""
+
+    async def dispatch(self, request, call_next):
+        raise RuntimeError("middleware bug")
+
+
+@pytest.fixture
+def app_with_broken_middleware():
+    """LoggingMiddleware outside, a middleware that raises right inside it.
+
+    The error middleware only covers what is closer to the routes, so an
+    exception raised here crosses LoggingMiddleware.
+    """
+    application = FastAPI()
+
+    @application.get("/")
+    async def root():
+        return {}
+
+    application.add_middleware(BrokenMiddleware)
+    application.add_middleware(LoggingMiddleware)
+    return application
+
+
+class TestFailingMiddleware:
+    async def test_request_completed_is_logged_as_500(self, app_with_broken_middleware):
+        """[EC] A request whose middleware raises still gets request_completed.
+
+        WHY: the request had request_started and then nothing, so its
+        status and duration were missing. Starlette answers it with a 500.
+        """
+        async with AsyncClient(
+            transport=ASGITransport(
+                app=app_with_broken_middleware, raise_app_exceptions=False
+            ),
+            base_url="http://testserver",
+        ) as client:
+            response, lines = await get_logged(client)
+
+        assert response.status_code == 500
+        completed = [line for line in lines if line["event"] == "request_completed"]
+        assert [line["status_code"] for line in completed] == [500]
+        assert completed[0]["duration_ms"] >= 0
+
+    async def test_the_exception_goes_on(self, app_with_broken_middleware):
+        """[EC] LoggingMiddleware writes its line and lets the exception go.
+
+        WHY: the handler registered for Exception must still get it, to log
+        the traceback and answer 500.
+        """
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_broken_middleware),
+            base_url="http://testserver",
+        ) as client:
+            with pytest.raises(RuntimeError, match="middleware bug"):
+                await client.get("/")
 
 
 class TestCors:

@@ -28,6 +28,11 @@ def request_id_for(request: Request) -> str:
     return str(uuid.uuid4())
 
 
+def elapsed_ms(start_time: float) -> float:
+    """Milliseconds since start_time, a time.perf_counter() value."""
+    return round((time.perf_counter() - start_time) * 1000, 2)
+
+
 class LoggingMiddleware(BaseHTTPMiddleware):
     """
     Middleware that handles HTTP request/response logging.
@@ -38,7 +43,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
     3. Binds request_id, method, path to the logging context
     4. Logs request start
     5. Executes the request handler
-    6. Logs request completion with duration and status code
+    6. Logs request completion with duration and status code, 500 when
+       a middleware raises
     7. Sends the request id back in X-Request-ID
 
     Example output:
@@ -93,14 +99,23 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             user_agent=request.headers.get("user-agent"),
         )
 
-        response = await call_next(request)
-
-        duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+        try:
+            response = await call_next(request)
+        except Exception:
+            # Raised by a middleware closer to the routes. The handler
+            # registered for Exception logs the traceback and answers 500,
+            # outside every middleware: the 500 cannot get X-Request-ID.
+            log(
+                "request_completed",
+                status_code=500,
+                duration_ms=elapsed_ms(start_time),
+            )
+            raise
 
         log(
             "request_completed",
             status_code=response.status_code,
-            duration_ms=duration_ms,
+            duration_ms=elapsed_ms(start_time),
         )
 
         # Add request_id to response headers
