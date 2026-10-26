@@ -33,28 +33,28 @@ class TestCreateApp:
 
         assert app.state.settings is settings
 
+    # Since FastAPI 0.137 app.routes is internal: included routers stay
+    # whole, so it is a tree, not a list of routes. url_path_for finds a
+    # route by its name (the function's) anywhere in the tree.
     def test_includes_health_routes(self, settings):
         app = create_app(settings)
 
-        routes = [route.path for route in app.routes]
-        assert "/health/live" in routes
-        assert "/health/ready" in routes
+        assert app.url_path_for("liveness") == "/health/live"
+        assert app.url_path_for("readiness") == "/health/ready"
 
     def test_includes_auth_routes(self, settings):
         app = create_app(settings)
 
-        routes = [route.path for route in app.routes]
-        assert "/auth/login" in routes
-        assert "/auth/token" in routes
-        assert "/auth/refresh" in routes
-        assert "/auth/logout" in routes
-        assert "/auth/me" in routes
+        assert app.url_path_for("get_login_url") == "/auth/login"
+        assert app.url_path_for("exchange_token") == "/auth/token"
+        assert app.url_path_for("refresh_token") == "/auth/refresh"
+        assert app.url_path_for("logout") == "/auth/logout"
+        assert app.url_path_for("get_me") == "/auth/me"
 
     def test_includes_root_route(self, settings):
         app = create_app(settings)
 
-        routes = [route.path for route in app.routes]
-        assert "/" in routes
+        assert app.url_path_for("root") == "/"
 
     def test_docs_enabled_in_development(self):
         app = create_app(Settings(app=AppSettings(environment="development")))
