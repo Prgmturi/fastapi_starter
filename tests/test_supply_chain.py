@@ -132,8 +132,21 @@ class TestImageScan:
         upload = ci_step("docker", "github/codeql-action/upload-sarif@")
         job = yaml.safe_load(CI_WORKFLOW.read_text())["jobs"]["docker"]
 
-        assert upload["if"] == "${{ !cancelled() }}"
+        assert "!cancelled()" in upload["if"]
         assert job["permissions"] == {"contents": "read", "security-events": "write"}
+
+    def test_no_upload_without_a_report(self):
+        """[EC] Without a scan there is no report, and no upload.
+
+        WHY: when the image did not build, the upload ran anyway and failed
+        with "Input required and not supplied: sarif_file", an error next to
+        the real one (PR #53, 26 October 2026). scan-action sets its sarif
+        output also when it fails the build, so a failed scan still reaches
+        the Security tab.
+        """
+        upload = ci_step("docker", "github/codeql-action/upload-sarif@")
+
+        assert "steps.scan.outputs.sarif != ''" in upload["if"]
 
 
 class TestSecretsHook:

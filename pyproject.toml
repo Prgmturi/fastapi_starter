@@ -81,12 +81,6 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 
-[[tool.mypy.overrides]]
-module = [
-    "asyncpg.*",
-]
-ignore_missing_imports = true
-
 
 # =============================================================================
 # IMPORT-LINTER - Architecture rules, checked in CI with: uv run lint-imports

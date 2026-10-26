@@ -7,6 +7,15 @@ on:
 
 permissions: {}
 
+# One run at a time. Two merges close together started two release-please
+# runs at once: both found no release PR, both opened one, and one failed.
+# A new run now waits for the one in progress. A newer one still takes the
+# place of a run that waits, and that loses nothing: each run reads every
+# commit since the last release.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release-please:
     name: Prepare or tag release
@@ -63,10 +72,13 @@ jobs:
         run: |
           image="$REGISTRY/${GITHUB_REPOSITORY,,}"
           version="${TAG#v}"
+          # The commit of the tag. The run that makes a release can be a newer
+          # one, whose GITHUB_SHA is a later commit.
+          revision="$(git rev-parse HEAD)"
           docker build -f docker/Dockerfile \
             --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.version=$version" \
-            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.revision=$revision" \
             -t "$image:$version" -t "$image:latest" .
           docker push "$image:$version"
           docker push "$image:latest"

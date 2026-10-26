@@ -7,7 +7,9 @@ pre-commit hooks and CI checked the same things with different tools:
 a file or a commit message the hook accepted could fail CI.
 """
 
+import ast
 import re
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
@@ -25,6 +27,18 @@ def runners() -> list[str]:
         for path in WORKFLOWS
         for match in re.finditer(r"^\s*runs-on:\s*(\S+)", path.read_text(), re.M)
     ]
+
+
+def imported_by_src() -> set[str]:
+    """Top-level modules imported in src/, the code mypy checks."""
+    modules = set()
+    for path in ROOT.glob("src/**/*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Import):
+                modules.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                modules.add(node.module.split(".")[0])
+    return modules
 
 
 class TestRunner:
@@ -100,3 +114,25 @@ class TestCommitMessages:
 
         assert lines
         assert [line for line in lines if not as_variable.fullmatch(line)] == []
+
+
+class TestMypy:
+    def test_every_override_names_a_module_the_code_imports(self):
+        """[EC] An override for a module that src/ never imports is dead config.
+
+        WHY: the override for asyncpg.* outlived the last import of asyncpg,
+        and mypy 2.4 reports it as an unused section (26 October 2026).
+        """
+        mypy = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["mypy"]
+        modules = [
+            module
+            for override in mypy.get("overrides", [])
+            for module in (
+                [override["module"]]
+                if isinstance(override["module"], str)
+                else override["module"]
+            )
+        ]
+        imported = imported_by_src()
+
+        assert [m for m in modules if m.split(".")[0] not in imported] == []
