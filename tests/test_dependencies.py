@@ -22,6 +22,7 @@ USED_WITHOUT_IMPORT = {
 # Extras: what each one adds, and why the app needs it
 EXTRAS_WITH_A_REASON = {
     "pyjwt[crypto]": "cryptography, for the RS256 signatures of Keycloak tokens",
+    "sqlalchemy[asyncio]": "greenlet, which the async engine needs since 2.1",
     "uvicorn[standard]": "uvloop and httptools, which uvicorn picks up by itself",
 }
 
@@ -84,3 +85,13 @@ class TestRuntimeDependencies:
         ]
 
         assert unexplained == []
+
+    def test_sqlalchemy_brings_greenlet_for_the_async_engine(self):
+        """[EC] The asyncio extra of SQLAlchemy stays declared.
+
+        WHY: since SQLAlchemy 2.1 a plain install leaves greenlet out, and the
+        async engine cannot run without it. On the update to 2.1.6 every test
+        stopped at the import of tests/conftest.py, and the image at its smoke
+        test (PR #53).
+        """
+        assert "asyncio" in dict(declared())["sqlalchemy"]
