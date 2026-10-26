@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.0](https://github.com/Prgmturi/fastapi_starter/compare/v0.6.1...v0.7.0) (2026-10-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* the stack starts from compose.yaml, and the image from the SERVER_* settings.
+    - docker/docker-compose.yaml, infra/docker-compose.yml and their .env.example files are gone: compose.yaml at the root replaces them, with volumes of its own.
+    - the image reads SERVER_FORWARDED_ALLOW_IPS instead of FORWARDED_ALLOW_IPS, and takes its options from the SERVER_* variables: arguments after the image name, such as --port, now replace the command.
+
+### Features
+
+* run the whole stack with docker compose and publish the image of every release ([#48](https://github.com/Prgmturi/fastapi_starter/issues/48)) ([50cc6f9](https://github.com/Prgmturi/fastapi_starter/commit/50cc6f91dac18e300c0f693acadf167d3d151d4c))
+
 ## [0.6.1](https://github.com/Prgmturi/fastapi_starter/compare/v0.6.0...v0.6.1) (2026-10-25)
 
 
