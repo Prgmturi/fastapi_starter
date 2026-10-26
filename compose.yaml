@@ -100,7 +100,7 @@ services:
     restart: unless-stopped
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.7.3
+    image: quay.io/keycloak/keycloak:26.8.1-1
     # --import-realm: the files in data/import, on the first start only. A
     # realm that already exists is kept as it is, with its changes.
     command: ["start-dev", "--import-realm"]
