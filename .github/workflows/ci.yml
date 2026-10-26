@@ -213,9 +213,11 @@ jobs:
           output-format: sarif
 
       # The report in the Security tab of the repository, also when the scan
-      # has failed the build
+      # has failed the build: scan-action sets its sarif output then too.
+      # Without a scan (a step before it failed) there is no report, and the
+      # upload would only add an error of its own.
       - name: Upload the scan report
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.scan.outputs.sarif != '' }}
         uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
