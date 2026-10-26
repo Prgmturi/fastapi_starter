@@ -74,6 +74,33 @@ class TestImage:
         assert "org.opencontainers.image.source=" in script()
 
 
+class TestOneRunAtATime:
+    def test_release_runs_wait_for_each_other(self):
+        """[EC] Merges close together run release-please one after the other.
+
+        WHY: #50 and #51, merged 20 seconds apart, started two runs at once.
+        Both found no release PR, both opened it, and one failed with "A pull
+        request already exists" (26 October 2026). Two image jobs at once
+        could also push latest out of order.
+        """
+        workflow = yaml.safe_load(RELEASE_WORKFLOW.read_text())
+
+        assert workflow["concurrency"] == {
+            "group": "release",
+            "cancel-in-progress": False,
+        }
+
+    def test_the_image_names_the_commit_it_was_built_from(self):
+        """[EC] The revision label is the commit of the tag, not of the run.
+
+        WHY: a newer run takes the place of one still waiting, and then makes
+        the release of the merge before it: its GITHUB_SHA is a later commit
+        than the tag it builds.
+        """
+        assert 'revision="$(git rev-parse HEAD)"' in script()
+        assert "org.opencontainers.image.revision=$revision" in script()
+
+
 class TestVersionBump:
     def test_release_bumps_compose_prod(self):
         """[HP] release-please writes the new version into compose.prod.yaml."""
