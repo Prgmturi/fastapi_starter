@@ -1,0 +1,147 @@
+# =============================================================================
+# The whole stack, for development: docker compose up --build
+# =============================================================================
+# The API, its migrations, Postgres, and Keycloak with its own Postgres and
+# the realm of docker/keycloak/realm-dev.json: client fastapi-backend, the
+# four roles, and testuser. From a clean clone it needs no .env: every value
+# has a development default.
+#
+# On the host: the API on SERVER_PORT (8000), Keycloak on KEYCLOAK_PORT (8080),
+# Postgres on DATABASE_PORT (5433). Compose reads these and DATABASE_NAME,
+# DATABASE_USER, DATABASE_PASSWORD from the .env of this folder when there is
+# one: they are the values an app started on the host uses (.env.example).
+#
+# Compose derives every container, network and volume name from the project
+# (the folder): two clones never share a database (tests/test_compose.py).
+# =============================================================================
+
+x-app-build: &app-build
+  context: .
+  dockerfile: docker/Dockerfile
+
+# Inside the stack the database is "db", on its own port
+x-app-database: &app-database
+  DATABASE_HOST: db
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: ${DATABASE_NAME:-appbase}
+  DATABASE_USER: ${DATABASE_USER:-appbase}
+  DATABASE_PASSWORD: ${DATABASE_PASSWORD:-appbase_secret_change_me}
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-appbase}
+      POSTGRES_USER: ${DATABASE_USER:-appbase}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-appbase_secret_change_me}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "${DATABASE_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+  # Runs the migrations, then exits: the API starts only if they succeed
+  migrate:
+    build: *app-build
+    command: ["alembic", "upgrade", "head"]
+    environment: *app-database
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: *app-build
+    environment:
+      <<: *app-database
+      APP_ENVIRONMENT: development
+      # The API calls Keycloak inside the stack, the browser on localhost.
+      # Tokens name KC_HOSTNAME as issuer, so KEYCLOAK_PUBLIC_URL is the same.
+      KEYCLOAK_HOST: keycloak
+      KEYCLOAK_PORT: "8080"
+      KEYCLOAK_PUBLIC_URL: http://localhost:${KEYCLOAK_PORT:-8080}
+      # The secret of the client in docker/keycloak/realm-dev.json, not read
+      # from .env: it must match the imported realm. Production refuses it.
+      KEYCLOAK_CLIENT_SECRET: fastapi-backend-dev-secret
+      SERVER_TRUSTED_HOSTS: '["localhost", "127.0.0.1"]'
+    ports:
+      - "${SERVER_PORT:-8000}:8000"
+    # The image's HEALTHCHECK, probed every 2 seconds while the app starts
+    healthcheck:
+      start_period: 30s
+      start_interval: 2s
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+    restart: unless-stopped
+
+  keycloak-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak-dev-password
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.3
+    # --import-realm: the files in data/import, on the first start only. A
+    # realm that already exists is kept as it is, with its changes.
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      # gitleaks takes "keycloak-db" for the name of a key and the rest for
+      # its value. The URL holds no user name or password: keep it so.
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak  # gitleaks:allow
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak-dev-password
+      # The administrator of the console, for development only
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # The address of the browser, and the issuer of every token. The API
+      # reaches Keycloak at http://keycloak:8080, which BACKCHANNEL_DYNAMIC
+      # allows for the calls it makes (tokens, signing keys).
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8080}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./docker/keycloak/realm-dev.json:/opt/keycloak/data/import/realm-dev.json:ro
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    # No curl in the image: bash talks HTTP to the management port itself.
+    # Port 9000 (health, metrics) stays inside the stack.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"status": "UP"' <&3
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  keycloak_db_data:

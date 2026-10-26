@@ -12,8 +12,9 @@ from fastapi_starter.core.config.server import ServerSettings
 
 # The code default and the value in .env.example
 EXAMPLE_DATABASE_PASSWORDS = {"postgres", "appbase_secret_change_me"}
-# Empty by default; the placeholder in .env.example
-EXAMPLE_CLIENT_SECRETS = {"", "your-client-secret-here"}
+# Empty by default; the old placeholder of .env.example; the secret of the
+# development realm (docker/keycloak/realm-dev.json), public in the repository
+EXAMPLE_CLIENT_SECRETS = {"", "your-client-secret-here", "fastapi-backend-dev-secret"}
 # The default SERVER_TRUSTED_HOSTS
 LOCAL_HOSTS = {"localhost", "127.0.0.1"}
 
@@ -58,6 +59,11 @@ def production_problems(
     elif set(server.trusted_hosts) <= LOCAL_HOSTS:
         problems.append(
             "SERVER_TRUSTED_HOSTS lists only localhost: add the API's domain"
+        )
+    if "*" in server.forwarded_allow_ips:
+        problems.append(
+            'SERVER_FORWARDED_ALLOW_IPS contains "*": any client can choose '
+            "the address the logs show"
         )
 
     return problems

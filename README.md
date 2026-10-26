@@ -32,13 +32,15 @@ features/   ← business logic: your endpoints go here
 
 CI checks these rules on every push and pull request, so breaking one fails the build:
 
-- `uv run lint-imports` checks the import contracts in `pyproject.toml` (`[tool.importlinter]`). The layers are `main` → `setup`, `exception_handlers` → `features` → `core`, and a module never imports from a layer above its own. Protocols import no adapter, `AuthService` imports neither PyJWT nor httpx, `core/auth/` never touches the database, and routers don't import httpx. A broken contract prints what to do instead.
+- `uv run lint-imports` checks the import contracts in `pyproject.toml` (`[tool.importlinter]`). The layers are the entry points (`main`, `serve`, `healthcheck`) → `setup`, `exception_handlers` → `features` → `core`, and a module never imports from a layer above its own. Protocols import no adapter, `AuthService` imports neither PyJWT nor httpx, `core/auth/` never touches the database, and routers don't import httpx. A broken contract prints what to do instead.
 - mypy checks that each adapter still matches its port: `setup.py` stores every adapter in `app.state` through a variable typed as the port.
 - ruff rejects imports inside functions (`PLC0415`).
 
 ```
 src/fastapi_starter/
 ├── main.py                  # App factory + lifespan
+├── serve.py                 # The image's command: uvicorn with the SERVER_* settings
+├── healthcheck.py           # The image's health probe
 ├── setup.py                 # Composition root — the only place that knows everything
 ├── exception_handlers.py    # Exceptions → RFC 9457 error responses
 ├── core/
@@ -59,52 +61,52 @@ src/fastapi_starter/
 
 ## Getting started
 
-**Prerequisites:** Python 3.13, Docker, [uv](https://docs.astral.sh/uv/)
+**Prerequisites:** Docker. To work on the code, also Python 3.13 and [uv](https://docs.astral.sh/uv/) 0.13 or later (an older uv stops with an error in this project: run `uv self update`).
 
 ```bash
-# 1. Clone
 git clone https://github.com/Prgmturi/fastapi_starter.git
 cd fastapi_starter
+docker compose up --build --wait
+```
 
-# 2. Configure — three .env files, one per stack.
-# Docker Compose reads .env from the directory of each compose file,
-# so a single .env in the repo root is NOT enough.
-cp .env.example .env              # read by FastAPI
-cp docker/.env.example docker/.env  # app database container
-cp infra/.env.example infra/.env    # Keycloak + its database container
-# Fill in KEYCLOAK_CLIENT_SECRET after completing the Keycloak setup below.
-# Keep DATABASE_* in .env and APP_DB_* in docker/.env in sync — they
-# describe the same database, and the compose files refuse to start if
-# a required variable is missing.
+That starts the whole stack of `compose.yaml`, with development values and no `.env` to write:
 
-# 3. Start infrastructure
-docker compose -f infra/docker-compose.yml up -d    # Keycloak + its database
-docker compose -f docker/docker-compose.yaml up -d  # App database (port 5433)
+| Service | On the host | What it is |
+|---|---|---|
+| `api` | http://localhost:8000, docs at `/docs` | the app, built from `docker/Dockerfile` |
+| `migrate` | | `alembic upgrade head`, then it exits; the API starts only after it succeeds |
+| `db` | `localhost:5433` | the app's Postgres |
+| `keycloak` | http://localhost:8080, console user `admin`, password `admin` | Keycloak, in development mode |
+| `keycloak-db` | | Keycloak's Postgres |
 
-# 4. Install and run
+`uv run pytest -m e2e` logs the test user in through Keycloak and calls the API with the token, as a frontend would (CI does it on every push). The ports come from `SERVER_PORT`, `KEYCLOAK_PORT` and `DATABASE_PORT`, exported or in `.env`.
+
+### Keycloak
+
+On its first start Keycloak imports the realm of `docker/keycloak/realm-dev.json`:
+
+- realm `fastapi-starter`, with the roles `superadmin`, `admin`, `collaborator` and `user`
+- client `fastapi-backend`: confidential, standard flow only, redirect URIs `http://localhost:*`, secret `fastapi-backend-dev-secret`
+- user `testuser`, password `testuser-dev-password`, role `user`
+
+These values are public, so the realm is for development only: with `APP_ENVIRONMENT=production` the app refuses that secret. Changes made in the console stay in Keycloak's volume, and a realm that already exists is not imported again. To start again from the file, remove Keycloak's volume: `docker compose down`, then `docker volume rm <project>_keycloak_db_data`, where `<project>` is the folder name; the app's data is in another volume.
+
+To have the API check `aud`: in the client's *Client scopes* tab open `fastapi-backend-dedicated` and add a mapper of type *Audience*, with *Included Client Audience* `fastapi-backend` and *Add to access token* on. Then set `KEYCLOAK_AUDIENCE=fastapi-backend`.
+
+### Working on the code
+
+Run the app on the host, with Postgres and Keycloak from the stack:
+
+```bash
 uv sync
+uv run pre-commit install         # ruff and commitlint on every commit, as CI runs them
+cp .env.example .env              # the stack's values, as the host sees them
+docker compose up --wait db keycloak
 uv run alembic upgrade head
 uv run uvicorn fastapi_starter.main:create_app --factory --reload
 ```
 
 Open http://localhost:8000/docs.
-
-### Keycloak setup (first time)
-
-1. Open http://localhost:8080 → log in with the credentials from
-   `infra/.env` (`KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD`)
-2. Create realm: `fastapi-starter`
-3. Create client: `fastapi-backend`
-   - Client authentication: **ON**
-   - Standard flow: **ON**
-   - Valid redirect URIs: `http://localhost:*`
-4. Copy the client secret → `.env` → `KEYCLOAK_CLIENT_SECRET`
-5. Create roles: `superadmin`, `admin`, `collaborator`, `user`
-6. Create a test user and assign a role
-7. Optional — to have the API check `aud`: in the client's *Client scopes*
-   tab open `fastapi-backend-dedicated` and add a mapper of type *Audience*,
-   with *Included Client Audience* `fastapi-backend` and *Add to access token*
-   on. Then set `KEYCLOAK_AUDIENCE=fastapi-backend` in `.env`.
 
 ## Authentication flow
 
@@ -208,7 +210,7 @@ Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) pr
 
 ## Health checks
 
-- `GET /health/live` answers 200 while the process runs. The Docker `HEALTHCHECK` calls it with `python -m fastapi_starter.healthcheck`, which sends the first `SERVER_TRUSTED_HOSTS` entry as `Host` and `SERVER_PORT` as port: the probe passes the trusted-host check that real requests pass.
+- `GET /health/live` answers 200 while the process runs. The Docker `HEALTHCHECK` calls it with `python -m fastapi_starter.healthcheck`, which sends the first `SERVER_TRUSTED_HOSTS` entry as `Host` and `SERVER_PORT` as port: the probe passes the trusted-host check that real requests pass, on the port the image's command (`python -m fastapi_starter.serve`) listens on.
 - `GET /health/ready` answers 200 when the instance can serve requests and 503 when a check fails. The body is a status report, not a problem document, and gives only the status of each check: `{"status": "unhealthy", "checks": {"database": {"status": "unhealthy"}, "auth": {"status": "healthy"}}}`. The endpoint needs no token, so the cause goes to the logs only, as `readiness_check_failed`. A check that takes more than 2 seconds counts as failed.
 - The auth check does not call Keycloak: it passes while the signing keys are cached. If Keycloak goes down, the instances keep validating tokens with those keys and stay ready.
 
@@ -218,18 +220,19 @@ Every line the process writes has one format: JSON outside development, with the
 
 - Every request has an id, in all its log lines (`request_id`) and in the `X-Request-ID` response header. A request that comes with an `X-Request-ID` of up to 64 letters, digits, `.`, `_` or `-` keeps it, so the proxy's log and the app's share the id; any other value is replaced with a new one. The proxy must set the header itself, over the client's, or the client picks the id: with Nginx, `proxy_set_header X-Request-ID $request_id;`, and `$request_id` in its `log_format`. CORS exposes the header, so a frontend on another origin can read it, for example to show it with an error.
 - `request_started` names the client, with `client_ip` and `user_agent`. The query string is not logged: it can hold personal data or tokens. The request lines of the health probes (`/health/...`) are DEBUG, since Docker's `HEALTHCHECK` alone would write two lines every 30 seconds.
-- Behind a proxy, uvicorn takes the client's address from `X-Forwarded-For` only on connections from an address in `FORWARDED_ALLOW_IPS`, by default `127.0.0.1`. In a container the proxy has another address: set `FORWARDED_ALLOW_IPS` to it, or to its network (`172.18.0.0/16`), or `client_ip` is always the proxy's. uvicorn reads it from the environment of the process, not from `.env`. Never `*` while the port can be reached without the proxy: anyone could choose the address the logs show.
+- Behind a proxy, uvicorn takes the client's address from `X-Forwarded-For` only on connections from an address in `SERVER_FORWARDED_ALLOW_IPS`, by default `["127.0.0.1"]`. In a container the proxy has another address: set it to that address, or to its network (`["172.18.0.0/16"]`), or `client_ip` is always the proxy's. Never `*` while the port can be reached without the proxy: anyone could choose the address the logs show, and production refuses it. The image's command passes the setting to uvicorn; the uvicorn command used in development reads uvicorn's own `FORWARDED_ALLOW_IPS` variable instead.
 - uvicorn's access line is off: `request_completed` says the same, with the request id and the duration, and the access line also carries the query string. To have it back, delete the line that sets `uvicorn.access` to `WARNING` in `core/logging/config.py`.
-- With `--workers` or `--reload`, uvicorn's parent process never calls the app factory, so its few lines (start and stop) keep uvicorn's format. The Docker image runs one process: to scale, run more containers.
+- With `--workers` or `--reload`, uvicorn's parent process never calls the app factory, so its few lines (start and stop) keep uvicorn's format. The Docker image runs one process unless `SERVER_WORKERS` says otherwise: to scale, run more containers.
 
 ## Running tests
 
 ```bash
-uv run pytest                              # all tests but the integration ones
+uv run pytest                              # all tests but the integration and end-to-end ones
 uv run pytest tests/core/auth/            # a module
 uv run pytest tests/core/auth/test_service.py::TestValidateToken  # one class
 uv run pytest --cov                        # with coverage, as CI runs it
 uv run pytest -m integration               # only the integration tests, on a real Postgres
+uv run pytest -m e2e                       # a login through the running stack (docker compose up)
 ```
 
 Tests are fully async. Outside `tests/integration/` they use `AsyncMock` stubs — no real database or Keycloak instance needed. The root `conftest.py` provides fixtures for the app, HTTP client, mock services, and sample users at different role levels.
@@ -238,10 +241,10 @@ Tests never read your local `.env` or exported `APP_*`, `KEYCLOAK_*` variables: 
 
 ### Integration tests
 
-The tests in `tests/integration/` run on a real Postgres, for what a mock cannot show, such as a commit that the database refuses. `uv run pytest` leaves them out, even when you name their file; add `-m integration`, which runs only them. They read `TEST_DATABASE_*` (exported or in `.env`, see `.env.example`) and no other setting, and they refuse a database whose name does not end in `_test`, because they create and drop tables in it. Create that database once, in the app database container:
+The tests in `tests/integration/` run on a real Postgres, for what a mock cannot show, such as a commit that the database refuses. `uv run pytest` leaves them out, even when you name their file; add `-m integration`, which runs only them. They read `TEST_DATABASE_*` (exported or in `.env`, see `.env.example`) and no other setting, and they refuse a database whose name does not end in `_test`, because they create and drop tables in it. Create that database once, in the `db` service of the stack:
 
 ```bash
-docker exec app-db createdb -U appbase appbase_test   # -U: APP_DB_USER in docker/.env
+docker compose exec db createdb -U appbase appbase_test   # -U: DATABASE_USER
 ```
 
 CI runs them in a job of their own, with its own Postgres. They do not count towards the coverage threshold.
@@ -307,7 +310,7 @@ uv run alembic upgrade head
 uv run alembic downgrade -1
 ```
 
-Migrations read `DATABASE_*` and no other setting, so a deploy runs `uv run alembic upgrade head` against the production database before it starts the new version, without the rest of the configuration. CI runs every migration up to head, compares the result with the models (`alembic check`: a model changed without its migration fails the build), then down to the base and up again.
+Migrations read `DATABASE_*` and no other setting, so they run before the new version starts, without the rest of the configuration: in `compose.yaml` the `migrate` service runs `alembic upgrade head` from the app's image, and the API starts only after it succeeds. CI runs every migration up to head, compares the result with the models (`alembic check`: a model changed without its migration fails the build), then down to the base and up again.
 
 Define models by subclassing `Base` from `core/database/base.py`. Import them in `alembic/env.py` before running autogenerate — if you forget, `--autogenerate` aborts with an explanation instead of emitting a migration that drops every table in the database.
 
@@ -316,12 +319,12 @@ Indexes and constraints get their names from the naming convention in `core/data
 ## Configuration reference
 
 All application settings are read from `.env` in the repo root — see
-`.env.example` for the full list. The two compose stacks read their own
-`docker/.env` and `infra/.env`.
+`.env.example` for the full list. `compose.yaml` reads from the same file
+only the ports and the database credentials; the `api` service gets the
+rest of its settings in `compose.yaml` itself.
 
-Two separate PostgreSQL instances:
-- **App DB** — port `5433` (`docker/docker-compose.yaml`)
-- **Keycloak DB** — internal to `infra/docker-compose.yml`
+Two Postgres instances in `compose.yaml`: `db`, the app's, on
+`DATABASE_PORT` (5433), and `keycloak-db`, reachable only inside the stack.
 
 Key environment variables:
 
@@ -334,15 +337,47 @@ KEYCLOAK_CLIENT_SECRET=...         # required
 KEYCLOAK_PUBLIC_URL=                # production: the address the browser sees, = KC_HOSTNAME
 SERVER_CORS_ORIGINS=["http://localhost:3000"]
 SERVER_MAX_BODY_SIZE=65536         # bytes; a larger request body gets 413
+SERVER_PORT=8000                   # the image listens and probes here
+SERVER_TIMEOUT_GRACEFUL_SHUTDOWN=5 # seconds open requests get at shutdown, below docker stop's 10
+SERVER_FORWARDED_ALLOW_IPS=["127.0.0.1"]  # the proxy, behind one: see Logs
 ```
 
-Behind a proxy, also `FORWARDED_ALLOW_IPS`, which uvicorn reads from the environment of the process, not from `.env`: see [Logs](#logs).
+The image starts with `python -m fastapi_starter.serve`, which runs uvicorn with the `SERVER_*` settings: host, port, workers, keep-alive, the shutdown time and the trusted proxies. Another command replaces it whole, as for the migrations: `docker run <image> alembic upgrade head`.
 
 `/docs`, `/redoc`, and `/openapi.json` are only available when `APP_ENVIRONMENT=development`.
 
-With `APP_ENVIRONMENT=production` the app refuses to start while a development or example value is left: `APP_DEBUG=true`, Keycloak's public address on http, an empty or example `KEYCLOAK_CLIENT_SECRET`, `KEYCLOAK_COOKIE_SECURE=false`, no `KEYCLOAK_ALLOWED_REDIRECT_URIS`, the default or example `DATABASE_PASSWORD`, `DATABASE_ECHO=true` (it logs every query with its values), `*` in `SERVER_CORS_ORIGINS` or `SERVER_TRUSTED_HOSTS`, or only localhost in `SERVER_TRUSTED_HOSTS`. The error lists every variable to change at once, without their values. The checks are in `core/config/production.py`.
+With `APP_ENVIRONMENT=production` the app refuses to start while a development or example value is left: `APP_DEBUG=true`, Keycloak's public address on http, an empty or example `KEYCLOAK_CLIENT_SECRET`, `KEYCLOAK_COOKIE_SECURE=false`, no `KEYCLOAK_ALLOWED_REDIRECT_URIS`, the default or example `DATABASE_PASSWORD`, `DATABASE_ECHO=true` (it logs every query with its values), `*` in `SERVER_CORS_ORIGINS`, `SERVER_TRUSTED_HOSTS` or `SERVER_FORWARDED_ALLOW_IPS`, or only localhost in `SERVER_TRUSTED_HOSTS`. The error lists every variable to change at once, without their values. The checks are in `core/config/production.py`.
 
 In every environment the pool settings have bounds, because SQLAlchemy reads some values in a surprising way: `DATABASE_POOL_SIZE` at least 1 (0 means no limit), `DATABASE_POOL_MAX_OVERFLOW` at least 0 (-1 means no limit), `DATABASE_POOL_TIMEOUT`, `DATABASE_POOL_RECYCLE` and the two database timeouts above 0 (`DATABASE_POOL_RECYCLE=0` opens a new connection for every query). A value out of range stops the startup with an error that names the variable.
+
+## Releases
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/): commitlint checks every commit of a pull request and its title, which becomes the commit on `master` when the pull request is squashed. [release-please](https://github.com/googleapis/release-please) keeps a release pull request open with the next version and the CHANGELOG. Merging it:
+
+- tags `vX.Y.Z` and publishes the GitHub release;
+- publishes the image `ghcr.io/prgmturi/fastapi_starter:X.Y.Z`, and `:latest`;
+- has already bumped the version in `pyproject.toml`, `uv.lock` and the `image:` lines of `compose.prod.yaml`.
+
+Under 1.0, `feat` and `fix` raise the patch number and a breaking change (`!`) the minor one.
+
+## Supply chain
+
+What the project takes from others, and how it is checked:
+
+- Every GitHub Action is pinned to a commit, with its version in a comment. A tag can be moved to other code: it happened to `aquasecurity/trivy-action` in March 2026.
+- Dependabot proposes updates once a week (`.github/dependabot.yml`): the actions, the base image of `docker/Dockerfile`, Postgres and Keycloak in the compose files, and `uv.lock`. What the image runs comes as `fix(deps)`, so it leads to a release; tools for development come as `build(deps-dev)` or `ci`. New majors of Python, Postgres and Keycloak, and new versions of uv, are upgrades by hand.
+- CI scans the image with [Grype](https://github.com/anchore/grype) and fails on a High or Critical vulnerability that has a fix; the report goes to the Security tab of the repository.
+- The pre-commit hook runs [gitleaks](https://github.com/gitleaks/gitleaks) on the staged changes and stops a commit that holds a secret. When it takes for a secret a value that is not one, end that line with `# gitleaks:allow`, as `KC_DB_URL` does in `compose.yaml`. On GitHub, turn on secret scanning and push protection (*Settings*, *Advanced Security*): they check every push.
+
+## Production
+
+`compose.prod.yaml`, over `compose.yaml`, runs the stack on one server: the image of a release, Keycloak in production mode behind a TLS proxy, every password and secret from the server's `.env`, the API and Keycloak on `127.0.0.1` only, and logs that rotate:
+
+```bash
+docker compose -f compose.yaml -f compose.prod.yaml up -d
+```
+
+[`docs/production.md`](docs/production.md) is the guide, from the first start of Keycloak to backups, and [`docs/nginx.conf`](docs/nginx.conf) the proxy: TLS, the request id, rate limits, and only the public paths of Keycloak.
 
 ## Stack
 

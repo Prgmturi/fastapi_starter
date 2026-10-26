@@ -26,6 +26,19 @@ class ServerSettings(BaseSettings):
         default=5,
         description="Keep-alive timeout in seconds",
     )
+    # Without a limit uvicorn waits for every open request, docker stop
+    # kills the process after 10 seconds, and the lifespan never closes the
+    # database pool. Keep it below the stop timeout of the container.
+    timeout_graceful_shutdown: int = Field(
+        default=5,
+        gt=0,
+        description="Seconds open requests get to finish when the process stops",
+    )
+    forwarded_allow_ips: list[str] = Field(
+        default=["127.0.0.1"],
+        description="Proxies (addresses or networks) whose X-Forwarded-For "
+        "uvicorn trusts for the client address",
+    )
     # CORS
     cors_origins: list[str] = Field(
         default=["http://localhost:3000", "http://localhost:5173"],

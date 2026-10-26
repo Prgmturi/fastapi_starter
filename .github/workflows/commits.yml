@@ -1,0 +1,64 @@
+name: Commit messages
+
+# The commit-msg hook of .pre-commit-config.yaml (commitlint) on every commit
+# of a PR and on its title. "edited": a title changed later is checked again.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions: {}
+
+env:
+  # The same uv as ci.yml and docker/Dockerfile (tests/test_lockfile.py)
+  UV_VERSION: "0.13.5"
+
+jobs:
+  commitlint:
+    name: Lint commit messages
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          # The whole history, to walk from the base branch to the PR head
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.13"
+
+      # Only the dev group: pre-commit, without the app and its dependencies
+      - name: Install pre-commit
+        run: uv sync --locked --only-dev
+
+      - name: Check each commit
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          failed=0
+          for sha in $(git rev-list --reverse "$BASE..$HEAD"); do
+            git log -1 --format='%h %s' "$sha"
+            git log -1 --format=%B "$sha" > "$RUNNER_TEMP/message"
+            uv run --no-sync pre-commit run commitlint --hook-stage commit-msg \
+              --commit-msg-filename "$RUNNER_TEMP/message" || failed=1
+          done
+          exit "$failed"
+
+      # With more than one commit, the squash merge takes the PR title as the
+      # commit on master (COMMIT_OR_PR_TITLE in the repository settings), and
+      # release-please reads that commit. The title reaches the script only as
+      # an environment variable: whoever opens the PR writes it, and inside
+      # run: GitHub would paste it into the script as shell code.
+      - name: Check the PR title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$TITLE" > "$RUNNER_TEMP/title"
+          uv run --no-sync pre-commit run commitlint --hook-stage commit-msg \
+            --commit-msg-filename "$RUNNER_TEMP/title"

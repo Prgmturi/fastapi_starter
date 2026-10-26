@@ -27,6 +27,7 @@ dev = [
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",
     "pytest-mock>=3.14.0",
+    "pyyaml>=6.0",
     "ruff>=0.14.10",
 ]
 
@@ -36,6 +37,14 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/fastapi_starter"]
+
+# =============================================================================
+# UV - one version in CI and in the image, checked by tests/test_lockfile.py
+# =============================================================================
+[tool.uv]
+# uv 0.12 and older rewrite uv.lock in an older format as soon as anything in
+# it changes. CI and docker/Dockerfile pin an exact version, at least this one.
+required-version = ">=0.13.0"
 
 # =============================================================================
 # RUFF - Linting & Formatting
@@ -88,10 +97,11 @@ root_package = "fastapi_starter"
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "Layers: main -> setup, exception_handlers -> features -> core"
+name = "Layers: main, serve, healthcheck -> setup, exception_handlers -> features -> core"
 type = "layers"
 layers = [
-    "fastapi_starter.main",
+    # The entry points: the app factory and the image's two commands
+    "fastapi_starter.main | fastapi_starter.serve | fastapi_starter.healthcheck",
     "fastapi_starter.setup | fastapi_starter.exception_handlers",
     "fastapi_starter.features",
     "fastapi_starter.core",
@@ -155,11 +165,13 @@ those. An httpx exception reaching a router is a bug in the adapter."""
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-# The integration tests need a real Postgres, so a plain "pytest" leaves them
-# out. "pytest -m integration" runs only them: the last -m wins.
-addopts = ["-v", "--tb=short", "-m", "not integration"]
+# The integration tests need a real Postgres and the end-to-end ones the
+# running stack, so a plain "pytest" leaves them out. "pytest -m integration"
+# or "pytest -m e2e" runs only those: the last -m wins.
+addopts = ["-v", "--tb=short", "-m", "not integration and not e2e"]
 markers = [
     "integration: needs a real Postgres (TEST_DATABASE_*); every test in tests/integration/",
+    "e2e: needs the stack of compose.yaml running; every test in tests/e2e/",
 ]
 # pytest 9: a typo in a marker or in this section becomes an error instead
 # of a warning (strict_markers, strict_config). Also enables strict_xfail

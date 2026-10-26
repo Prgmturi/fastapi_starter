@@ -1,0 +1,68 @@
+# Version updates once a week, beside the security updates GitHub sends on
+# its own. The commit types decide releases (release-please): fix(deps)
+# changes what the published image runs, so it leads to a release; ci and
+# build(deps-dev) do not (tests/test_supply_chain.py).
+version: 2
+
+updates:
+  # The actions of .github/workflows, pinned to a commit with the version in
+  # a comment: Dependabot moves both
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+
+  # docker/Dockerfile: the digest of the base image
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+    groups:
+      base-image:
+        patterns: ["*"]
+    commit-message:
+      prefix: fix(deps)
+    ignore:
+      # Python 3.14 would run in the image while CI tests on 3.13 (the
+      # python-version of setup-uv): only new digests of 3.13
+      - dependency-name: python
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      # uv moves in the Dockerfile and in the workflows at once, by hand
+      # (tests/test_lockfile.py)
+      - dependency-name: ghcr.io/astral-sh/uv
+
+  # compose.yaml and compose.prod.yaml: Postgres and Keycloak
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      services:
+        patterns: ["*"]
+    commit-message:
+      prefix: fix(deps)
+    ignore:
+      # A Postgres major does not start on the data of the previous one, and
+      # a Keycloak major can need steps of its own: upgrades by hand
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+      - dependency-name: quay.io/keycloak/keycloak
+        update-types: ["version-update:semver-major"]
+      # The app's own image: each release moves it (release-please-config.json)
+      - dependency-name: ghcr.io/prgmturi/fastapi_starter
+
+  # uv.lock. No groups: Dependabot cannot group uv updates by dependency
+  # type, and the type picks the prefix, so one pull request per package.
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: fix(deps)
+      prefix-development: build(deps-dev)
