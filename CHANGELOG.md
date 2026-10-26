@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.2](https://github.com/Prgmturi/fastapi_starter/compare/v0.7.1...v0.7.2) (2026-10-26)
+
+
+### Bug Fixes
+
+* **deps:** bump fastapi from 0.136.3 to 0.161.1 ([#54](https://github.com/Prgmturi/fastapi_starter/issues/54)) ([738a717](https://github.com/Prgmturi/fastapi_starter/commit/738a7176cbb7c08be6f79637239adeb074114a57))
+* **deps:** bump sqlalchemy from 2.0.46 to 2.1.6 ([#53](https://github.com/Prgmturi/fastapi_starter/issues/53)) ([5b76376](https://github.com/Prgmturi/fastapi_starter/commit/5b7637685d207658dd8aecbce531fb89d947b2f4))
+
 ## [0.7.1](https://github.com/Prgmturi/fastapi_starter/compare/v0.7.0...v0.7.1) (2026-10-26)
 
 
