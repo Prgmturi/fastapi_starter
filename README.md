@@ -360,6 +360,15 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/): com
 
 Under 1.0, `feat` and `fix` raise the patch number and a breaking change (`!`) the minor one.
 
+## Supply chain
+
+What the project takes from others, and how it is checked:
+
+- Every GitHub Action is pinned to a commit, with its version in a comment. A tag can be moved to other code: it happened to `aquasecurity/trivy-action` in March 2026.
+- Dependabot proposes updates once a week (`.github/dependabot.yml`): the actions, the base image of `docker/Dockerfile`, Postgres and Keycloak in the compose files, and `uv.lock`. What the image runs comes as `fix(deps)`, so it leads to a release; tools for development come as `build(deps-dev)` or `ci`. New majors of Python, Postgres and Keycloak, and new versions of uv, are upgrades by hand.
+- CI scans the image with [Grype](https://github.com/anchore/grype) and fails on a High or Critical vulnerability that has a fix; the report goes to the Security tab of the repository.
+- The pre-commit hook runs [gitleaks](https://github.com/gitleaks/gitleaks) on the staged changes and stops a commit that holds a secret. When it takes for a secret a value that is not one, end that line with `# gitleaks:allow`, as `KC_DB_URL` does in `compose.yaml`. On GitHub, turn on secret scanning and push protection (*Settings*, *Advanced Security*): they check every push.
+
 ## Production
 
 `compose.prod.yaml`, over `compose.yaml`, runs the stack on one server: the image of a release, Keycloak in production mode behind a TLS proxy, every password and secret from the server's `.env`, the API and Keycloak on `127.0.0.1` only, and logs that rotate:

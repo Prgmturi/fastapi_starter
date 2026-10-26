@@ -14,6 +14,8 @@ env:
 # Every job names its Ubuntu: ubuntu-latest moves to 26.04 between 19 October
 # and 19 November 2026, one repository at a time, so the image would change on
 # a run nobody chose (tests/test_tooling.py). Commit messages: commits.yml.
+# Every action is pinned to a commit, with its version in a comment: a tag
+# can be moved to other code (tests/test_supply_chain.py).
 jobs:
   ci:
     runs-on: ubuntu-24.04
@@ -22,10 +24,10 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v8.1.0
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.13"
@@ -49,13 +51,13 @@ jobs:
       - name: Import contracts
         run: uv run lint-imports
 
-      # La soglia (fail_under) sta in pyproject.toml. La tabella finisce
-      # anche nel riepilogo del run, senza aprire i log.
+      # The threshold (fail_under) is in pyproject.toml. The table also goes
+      # to the summary of the run, so it can be read without the logs.
       - name: Tests
         run: uv run pytest --tb=short --cov --cov-report=term --cov-report="markdown-append:$GITHUB_STEP_SUMMARY"
 
-      # I test non devono dipendere dalla macchina che li lancia: con un .env
-      # e variabili da produzione il risultato deve restare identico.
+      # The tests must not depend on the machine that runs them: with a .env
+      # and production variables the result must stay the same.
       - name: Tests in a production-like environment
         env:
           APP_ENVIRONMENT: production
@@ -98,10 +100,10 @@ jobs:
       TEST_DATABASE_PASSWORD: ci-only-password
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v8.1.0
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.13"
@@ -138,10 +140,10 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v8.1.0
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.13"
@@ -169,14 +171,14 @@ jobs:
 
     permissions:
       contents: read
+      security-events: write   # the scan's report, in Code scanning
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      # Il codice sorgente passava tutti i controlli mentre l'immagine
-      # non compilava: pyproject dichiara readme = "README.md" ma il builder
-      # non lo copiava. Nessun job verificava l'artefatto che si distribuisce.
-      # Questo job chiude quel buco.
+      # The code passed every check while the image did not build:
+      # pyproject.toml names README.md as readme, and the builder did not copy
+      # it. No job checked what is shipped; this one does.
       - name: Build image
         run: docker build -f docker/Dockerfile -t fastapi-starter:ci .
 
@@ -195,3 +197,26 @@ jobs:
         run: |
           docker run --rm fastapi-starter:ci python -c \
             "import os, fastapi_starter as p; d = os.path.dirname(p.__file__); assert not os.access(d, os.W_OK), d; print(d, 'is read-only for', os.getuid())"
+
+      # Grype on the image just built, Debian packages and Python ones: it
+      # fails on a High or Critical vulnerability that has a fix. On 25
+      # October 2026 the image had 55 High without one, in Debian: failing
+      # on those would fail every build with nothing to do about it.
+      - name: Scan the image
+        id: scan
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: fastapi-starter:ci
+          only-fixed: true
+          severity-cutoff: high
+          fail-build: true
+          output-format: sarif
+
+      # The report in the Security tab of the repository, also when the scan
+      # has failed the build
+      - name: Upload the scan report
+        if: ${{ !cancelled() }}
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+          category: grype

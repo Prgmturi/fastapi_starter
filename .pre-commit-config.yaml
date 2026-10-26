@@ -1,9 +1,21 @@
-# "uv run pre-commit install" sets up both: ruff before each commit, the
-# message check once the message is written
+# "uv run pre-commit install" sets up both: ruff and gitleaks before each
+# commit, the message check once the message is written
 default_install_hook_types: [pre-commit, commit-msg]
 
-# The hooks check what CI checks, with the same tools (tests/test_tooling.py)
+# The local hooks check what CI checks, with the same tools
+# (tests/test_tooling.py). gitleaks runs only here.
 repos:
+  # A secret pushed to a public repository is public, even if the commit is
+  # removed later: gitleaks looks at the staged changes and stops the commit.
+  # On GitHub, secret scanning and push protection check every push. The
+  # revision is a commit, as for the actions (tests/test_supply_chain.py).
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e  # frozen: v8.30.1
+    hooks:
+      - id: gitleaks
+        stages: [pre-commit]
+
+
   - repo: local
     hooks:
       # ruff from uv.lock, the version CI runs: the ruff-pre-commit repo pinned
