@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.1](https://github.com/Prgmturi/fastapi_starter/compare/v0.7.0...v0.7.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* **deps:** bump keycloak/keycloak ([#50](https://github.com/Prgmturi/fastapi_starter/issues/50)) ([8f680d1](https://github.com/Prgmturi/fastapi_starter/commit/8f680d104a28659eb0930231958bf28566be2c7b))
+* **deps:** update pyjwt[crypto] requirement from &gt;=2.11.0 to &gt;=2.15.1 ([#52](https://github.com/Prgmturi/fastapi_starter/issues/52)) ([b59f4d4](https://github.com/Prgmturi/fastapi_starter/commit/b59f4d4a260b7d925246b529975e1d9fbb4a3437))
+
 ## [0.7.0](https://github.com/Prgmturi/fastapi_starter/compare/v0.6.1...v0.7.0) (2026-10-26)
 
 
