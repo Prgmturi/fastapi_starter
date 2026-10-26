@@ -59,6 +59,16 @@ src/fastapi_starter/
     └── health/              # /health/live and /health/ready
 ```
 
+`main.py`, `serve.py` and `healthcheck.py` are the entry points: something outside the code starts them, and no module imports them (the layers contract above forbids it). That is why a search for their callers finds only the tests.
+
+| Module | Started by | When |
+|---|---|---|
+| `main.py` | uvicorn, which calls `create_app()` (`--factory`) | When the server process starts: through `serve.py` in the image, `uv run uvicorn ... --reload` in development |
+| `serve.py` | Docker, as the image's `CMD` | When the container starts: `docker compose up`, production |
+| `healthcheck.py` | Docker, as the image's `HEALTHCHECK` | Every 30 seconds while the container runs |
+
+The `migrate` service starts the same image with another command, `alembic upgrade head`.
+
 ## Getting started
 
 **Prerequisites:** Docker. To work on the code, also Python 3.13 and [uv](https://docs.astral.sh/uv/) 0.13 or later (an older uv stops with an error in this project: run `uv self update`).
