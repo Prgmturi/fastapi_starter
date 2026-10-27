@@ -4,13 +4,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from fastapi_starter.core.config import Settings, get_settings
-from fastapi_starter.core.logging import configure_logging, get_logger
-from fastapi_starter.core.problem_details import PROBLEM_RESPONSES
-from fastapi_starter.exception_handlers import register_exception_handlers
-from fastapi_starter.features.auth.router import auth_router
-from fastapi_starter.features.health.router import health_router
-from fastapi_starter.setup import (
+from fastapi_starter.bootstrap import (
     CleanupFn,
     create_keycloak_http_client,
     init_auth_service,
@@ -19,6 +13,12 @@ from fastapi_starter.setup import (
     register_middleware,
     shutdown_services,
 )
+from fastapi_starter.core.config import Settings, get_settings
+from fastapi_starter.core.logging import configure_logging, get_logger
+from fastapi_starter.core.problem_details import PROBLEM_RESPONSES
+from fastapi_starter.exception_handlers import register_exception_handlers
+from fastapi_starter.features.auth.router import auth_router
+from fastapi_starter.features.health.router import health_router
 
 logger = get_logger(__name__)
 

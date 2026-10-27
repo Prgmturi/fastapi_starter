@@ -28,12 +28,12 @@ core/       ← infrastructure: auth, database, config, logging, errors
 features/   ← business logic: your endpoints go here
 ```
 
-`core/` defines behavior through `Protocol` classes (ports). Concrete implementations (adapters) live alongside them but are only wired together in one place — `setup.py`. This means `AuthService` has no idea what PyJWT is, `JWKSManager` has no idea what SQLAlchemy is, and adding a feature doesn't require touching infrastructure code.
+`core/` defines behavior through `Protocol` classes (ports). Concrete implementations (adapters) live alongside them but are only wired together in one place — `bootstrap.py`. This means `AuthService` has no idea what PyJWT is, `JWKSManager` has no idea what SQLAlchemy is, and adding a feature doesn't require touching infrastructure code.
 
 CI checks these rules on every push and pull request, so breaking one fails the build:
 
-- `uv run lint-imports` checks the import contracts in `pyproject.toml` (`[tool.importlinter]`). The layers are the entry points (`main`, `serve`, `healthcheck`) → `setup`, `exception_handlers` → `features` → `core`, and a module never imports from a layer above its own. Protocols import no adapter, `AuthService` imports neither PyJWT nor httpx, `core/auth/` never touches the database, routers don't import httpx, and the health probe loads neither the app nor FastAPI, SQLAlchemy or httpx. A broken contract prints what to do instead.
-- mypy checks that each adapter still matches its port: `setup.py` stores every adapter in `app.state` through a variable typed as the port.
+- `uv run lint-imports` checks the import contracts in `pyproject.toml` (`[tool.importlinter]`). The layers are the entry points (`main`, `serve`, `healthcheck`) → `bootstrap`, `exception_handlers` → `features` → `core`, and a module never imports from a layer above its own. Protocols import no adapter, `AuthService` imports neither PyJWT nor httpx, `core/auth/` never touches the database, routers don't import httpx, and the health probe loads neither the app nor FastAPI, SQLAlchemy or httpx. A broken contract prints what to do instead.
+- mypy checks that each adapter still matches its port: `bootstrap.py` stores every adapter in `app.state` through a variable typed as the port.
 - ruff rejects imports inside functions (`PLC0415`).
 
 ```
@@ -41,7 +41,7 @@ src/fastapi_starter/
 ├── main.py                  # App factory + lifespan
 ├── serve.py                 # The image's command: uvicorn with the SERVER_* settings
 ├── healthcheck.py           # The image's health probe
-├── setup.py                 # Composition root — the only place that knows everything
+├── bootstrap.py             # Composition root — the only place that knows everything
 ├── exception_handlers.py    # Exceptions → RFC 9457 error responses
 ├── core/
 │   ├── auth/                # JWT validation, JWKS, Keycloak claim extraction
