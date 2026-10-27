@@ -144,6 +144,8 @@ Set `KEYCLOAK_ALLOWED_REDIRECT_URIS` to the frontend's callback URLs (a JSON lis
 
 The API accepts only access tokens (`typ: Bearer`) issued to `KEYCLOAK_CLIENT_ID` or to a client listed in `KEYCLOAK_ALLOWED_CLIENTS` (`azp`). ID tokens, refresh tokens and the tokens of other clients in the realm get 401, even though Keycloak signs them with the same keys. Up to 30 seconds of clock difference with Keycloak are tolerated.
 
+A frontend that uses these routes, from the PKCE values to the cookie and the refresh after a 401: [docs/frontend.md](docs/frontend.md).
+
 ## Adding a feature
 
 `features/notes/` is the example to copy: the notes of each user, at `/notes`. It has three layers, and each imports only the ones below it:
