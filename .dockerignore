@@ -1,22 +1,22 @@
 # =============================================================================
 # Docker build context
 # =============================================================================
-# Tutto ciò che è elencato qui resta fuori dal contesto di build.
+# Everything listed here stays out of the build context.
 #
-# Con BuildKit (il builder predefinito) il client invia solo i percorsi che
-# le istruzioni COPY usano: .venv e le cache alla radice non partono comunque.
-# Questo file decide cosa resta fuori DENTRO quei percorsi (per esempio le
-# __pycache__ sotto src/) e ferma i segreti anche se un giorno qualcuno
-# scrive COPY . .
+# With BuildKit (the default builder) the client sends only the paths that
+# the COPY instructions use: .venv and the caches at the root never leave.
+# This file decides what stays out INSIDE those paths (the __pycache__ under
+# src/, for example), and it keeps the secrets out even if someone writes
+# COPY . . one day.
 #
-# I pattern partono dalla radice del contesto: "__pycache__/" esclude solo
-# ./__pycache__. Per escludere a qualsiasi profondità serve "**/".
+# Patterns start at the root of the context: "__pycache__/" excludes only
+# ./__pycache__. To exclude at any depth, write "**/".
 #
-# ATTENZIONE: README.md, pyproject.toml, uv.lock, src/, alembic/ e alembic.ini
-# servono alla build — non aggiungerli qui.
+# WARNING: the build needs README.md, pyproject.toml, uv.lock, src/, alembic/
+# and alembic.ini: do not add them here.
 # =============================================================================
 
-# Virtualenv e artefatti Python
+# Virtual environments and Python artifacts
 .venv/
 venv/
 **/__pycache__/
@@ -26,33 +26,34 @@ dist/
 wheels/
 *.egg-info/
 
-# Cache dei tool
+# Caches of the tools
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
 .coverage
 htmlcov/
 
-# Git e metadati di repository
+# Git and repository metadata
 .git/
 .gitignore
 .github/
 .pre-commit-config.yaml
 
-# Segreti — non devono mai entrare nel contesto di build
+# Secrets: they must never enter the build context
 **/.env
 **/.env.*
 !**/.env.example
 
-# Test e documentazione: non fanno parte dell'immagine di runtime
+# Tests and documentation: not part of the runtime image
 tests/
 docs/
 
-# Compose e Dockerfile stessi (il Dockerfile è passato con -f)
+# docker/ holds the Dockerfile (passed with -f) and the development realm;
+# infra/ is a folder of older versions, still there on some machines
 docker/
 infra/
 
-# Editor e sistema operativo
+# Editors and operating system
 .idea/
 .vscode/
 .claude/

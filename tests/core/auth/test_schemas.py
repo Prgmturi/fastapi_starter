@@ -140,44 +140,44 @@ class TestUser:
         assert user.roles == [RoleEnum.USER]
 
     def test_username_rejects_whitespace(self):
-        """[EC] Whitespace is rejected — spezza il parsing dei log e le header."""
+        """[EC] Whitespace is rejected: it breaks log parsing and headers."""
         for bad in ("bad name", "leading ", " trailing"):
             with pytest.raises(ValidationError):
                 _make_user(username=bad)
 
     def test_username_rejects_control_characters(self):
-        r"""[SEC] Newline, tab, NUL, CR e DEL sono rifiutati.
+        r"""[SEC] Newline, tab, NUL, CR and DEL are rejected.
 
-        WHY: username finisce nell'output di structlog e nelle risposte API.
-        Un preferred_username come "evil\nlevel=error" forgerebbe una riga
-        di log; un \r\n in una header è response splitting.
+        WHY: username ends up in the output of structlog and in API responses.
+        A preferred_username such as "evil\nlevel=error" would forge a log
+        line, and a \r\n in a header is response splitting.
         """
         for bad in ("evil\nadmin", "a\tb", "cr\rlf", "nul\x00byte", "del\x7f"):
             with pytest.raises(ValidationError):
                 _make_user(username=bad)
 
     def test_username_accepts_email_form(self):
-        """[HP] Un'email come username deve essere accettata.
+        """[HP] An email as username is accepted.
 
-        WHY: regressione. Keycloak emette l'email come preferred_username
-        appena si abilita "Email as username". Il pattern precedente
-        (^[a-zA-Z0-9_-]+$) trasformava ogni login di quei realm in un 500.
+        WHY: a regression. Keycloak issues the email as preferred_username as
+        soon as "Email as username" is on. The previous pattern
+        (^[a-zA-Z0-9_-]+$) turned every login of those realms into a 500.
         """
         user = _make_user(username="mario.rossi@example.com")
 
         assert user.username == "mario.rossi@example.com"
 
     def test_username_accepts_non_ascii(self):
-        """[EC] Gli username non-ASCII sono validi — Keycloak li consente."""
+        """[EC] Non-ASCII usernames are valid: Keycloak allows them."""
         user = _make_user(username="José")
 
         assert user.username == "José"
 
     def test_username_length_boundaries(self):
-        """[EC] Vuoto rifiutato, 1 char accettato, 255 accettato, 256 rifiutato.
+        """[EC] Empty refused, 1 character accepted, 255 accepted, 256 refused.
 
-        WHY: il limite è 255 come per id — è il massimo che Keycloak stesso
-        ammette. Il vecchio limite di 50 era arbitrario.
+        WHY: the limit is 255, as for id: the most Keycloak itself allows. The
+        old limit of 50 was arbitrary.
         """
         with pytest.raises(ValidationError):
             _make_user(username="")
