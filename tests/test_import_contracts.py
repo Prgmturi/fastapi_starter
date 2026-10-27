@@ -28,12 +28,13 @@ MODULES = {"fastapi_starter"} | {
 
 
 def our_names(contract: dict) -> list[str]:
-    """The names of our modules in a contract: layers, sources, forbidden."""
+    """Our module names in a contract: layers, containers, sources, forbidden."""
     names = [
         name.strip()
         for layer in contract.get("layers", [])
         for name in re.split(r"[|:]", layer)  # siblings, independent or not
     ]
+    names += contract.get("containers", [])  # the packages that hold the layers
     names += contract.get("source_modules", []) + contract.get("forbidden_modules", [])
     # The others are packages such as httpx, there only to be forbidden
     return [name for name in names if name.split(".")[0] == "fastapi_starter"]
@@ -70,8 +71,10 @@ def test_patterns_are_read_as_import_linter_does():
         "fastapi_starter.features.auth.router",
         "fastapi_starter.features.health.router",
     ]
+    # The ports that "Ports import no adapter" covers, the feature's included
     assert sorted(matching_modules("fastapi_starter.**.protocols")) == [
         "fastapi_starter.core.auth.protocols",
         "fastapi_starter.core.database.protocols",
         "fastapi_starter.core.protocols",
+        "fastapi_starter.features.notes.domain.protocols",
     ]

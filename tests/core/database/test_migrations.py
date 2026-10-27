@@ -18,6 +18,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Column, Integer, MetaData, Table
 
+import fastapi_starter.features
+from fastapi_starter.core.database import Base
 from fastapi_starter.core.database.migrations import (
     import_models,
     refuse_empty_autogenerate,
@@ -92,6 +94,14 @@ class TestRefuseEmptyAutogenerate:
         Table("things", metadata, Column("id", Integer, primary_key=True))
 
         refuse_empty_autogenerate(metadata)
+
+
+def test_finds_the_model_of_notes():
+    """[HP] On the real features: the notes table reaches Base.metadata."""
+    found = import_models(fastapi_starter.features)
+
+    assert found == ["fastapi_starter.features.notes.persistence.models"]
+    assert "notes" in Base.metadata.tables
 
 
 def test_alembic_env_uses_both():

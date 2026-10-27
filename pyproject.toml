@@ -147,7 +147,8 @@ define a port in core/auth/protocols.py and wire its adapter in bootstrap.py."""
 [[tool.importlinter.contracts]]
 name = "Routers reach external services only through ports"
 type = "forbidden"
-source_modules = ["fastapi_starter.features.*.router"]
+# Any depth: features/auth/router.py, features/notes/api/router.py
+source_modules = ["fastapi_starter.features.**.router"]
 forbidden_modules = ["httpx"]
 broken_contract_guidance = """
 A router imports the HTTP client. OAuthProvider promises that its
@@ -176,6 +177,37 @@ image the probe takes about 350 ms to import, the app about 640 ms. The
 probe needs the standard library and ServerSettings: keep the rest out of
 it and out of the modules it imports. tests/test_healthcheck.py checks
 the same list in a running process."""
+
+
+[[tool.importlinter.contracts]]
+name = "The business layer of a feature knows no framework and no database"
+type = "forbidden"
+source_modules = ["fastapi_starter.features.*.domain"]
+forbidden_modules = [
+    "fastapi",
+    "starlette",
+    "pydantic",
+    "sqlalchemy",
+    "httpx",
+    "fastapi_starter.adapters",
+]
+broken_contract_guidance = """
+The domain of a feature holds its rules in plain Python, so that they can
+be tested with a repository kept in memory and read without knowing the
+framework. HTTP belongs in the api layer of the feature, the database in
+its persistence layer, behind a port in domain/protocols.py.
+tests/test_package.py checks the same list in a running process."""
+
+[[tool.importlinter.contracts]]
+name = "Inside a feature: api -> persistence -> domain"
+type = "layers"
+# A new feature with these three layers goes in this list
+containers = ["fastapi_starter.features.notes"]
+layers = ["api", "persistence", "domain"]
+broken_contract_guidance = """
+A layer of the feature imports a layer above its own. api may use the two
+below, persistence the domain; the domain uses neither: persistence
+implements the port the domain declares, and api wires the two."""
 
 
 # =============================================================================

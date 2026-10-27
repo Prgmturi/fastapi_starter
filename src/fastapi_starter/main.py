@@ -19,6 +19,7 @@ from fastapi_starter.core.problem_details import PROBLEM_RESPONSES
 from fastapi_starter.exception_handlers import register_exception_handlers
 from fastapi_starter.features.auth.router import auth_router
 from fastapi_starter.features.health.router import health_router
+from fastapi_starter.features.notes.api.router import notes_router
 
 logger = get_logger(__name__)
 
@@ -104,6 +105,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(notes_router)
 
     @app.get("/", include_in_schema=False)
     async def root() -> dict[str, Any]:

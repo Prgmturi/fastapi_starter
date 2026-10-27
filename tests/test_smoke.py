@@ -37,7 +37,9 @@ class TestSmokeTest:
         """[HP] The app builds, and the step prints a path from each router."""
         exec(smoke_test(), {})
 
-        assert capsys.readouterr().out == "routes found: / /health/live /auth/me\n"
+        assert capsys.readouterr().out == (
+            "routes found: / /health/live /auth/me /notes\n"
+        )
 
     def test_fails_without_the_routes_of_the_app(self, monkeypatch):
         """[EC] An app without our routes fails the step.

@@ -194,7 +194,7 @@ jobs:
       - name: Smoke test
         run: |
           docker run --rm fastapi-starter:ci python -c \
-            "from fastapi_starter.main import create_app; app = create_app(); print('routes found:', *(app.url_path_for(name) for name in ('root', 'liveness', 'get_me')))"
+            "from fastapi_starter.main import create_app; app = create_app(); print('routes found:', *(app.url_path_for(name) for name in ('root', 'liveness', 'get_me', 'list_notes')))"
 
       # The app runs as appuser, who must not be able to change its own
       # code: as the owner, a process taken over could rewrite it, and a
