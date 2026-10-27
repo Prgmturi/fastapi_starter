@@ -32,7 +32,7 @@ features/   ← business logic: your endpoints go here
 
 CI checks these rules on every push and pull request, so breaking one fails the build:
 
-- `uv run lint-imports` checks the import contracts in `pyproject.toml` (`[tool.importlinter]`). The layers are the entry points (`main`, `serve`, `healthcheck`) → `setup`, `exception_handlers` → `features` → `core`, and a module never imports from a layer above its own. Protocols import no adapter, `AuthService` imports neither PyJWT nor httpx, `core/auth/` never touches the database, and routers don't import httpx. A broken contract prints what to do instead.
+- `uv run lint-imports` checks the import contracts in `pyproject.toml` (`[tool.importlinter]`). The layers are the entry points (`main`, `serve`, `healthcheck`) → `setup`, `exception_handlers` → `features` → `core`, and a module never imports from a layer above its own. Protocols import no adapter, `AuthService` imports neither PyJWT nor httpx, `core/auth/` never touches the database, routers don't import httpx, and the health probe loads neither the app nor FastAPI, SQLAlchemy or httpx. A broken contract prints what to do instead.
 - mypy checks that each adapter still matches its port: `setup.py` stores every adapter in `app.state` through a variable typed as the port.
 - ruff rejects imports inside functions (`PLC0415`).
 

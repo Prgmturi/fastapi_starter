@@ -10,6 +10,9 @@ of rotation.
 """
 
 import re
+import subprocess
+import sys
+import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -23,6 +26,19 @@ from fastapi_starter.core.config import ServerSettings, Settings
 from fastapi_starter.main import create_app
 
 DOCKERFILE = Path(__file__).parent.parent / "docker" / "Dockerfile"
+PYPROJECT = Path(__file__).parent.parent / "pyproject.toml"
+
+# Prints every module that importing the probe loads, one per line
+LIST_LOADED = "import sys, fastapi_starter.healthcheck; print(*sys.modules, sep='\\n')"
+
+
+def probe_contract() -> dict:
+    """The import-linter contract of the probe, in pyproject.toml."""
+    importlinter = tomllib.loads(PYPROJECT.read_text())["tool"]["importlinter"]
+    for contract in importlinter["contracts"]:
+        if contract.get("source_modules") == ["fastapi_starter.healthcheck"]:
+            return contract
+    raise AssertionError("pyproject.toml has no import contract for healthcheck.py")
 
 
 class TestLivenessRequest:
@@ -83,6 +99,43 @@ class TestMain:
         monkeypatch.setenv("SERVER_PORT", "1")
 
         assert healthcheck.main() == 1
+
+
+class TestWhatTheProbeLoads:
+    """What importing healthcheck.py loads.
+
+    WHY: Docker runs the probe every 30 seconds, each time in a new Python
+    process. In the image importing it takes about 350 ms, the health
+    router about 580 ms, the app about 640 ms. Its import-linter contract
+    reads import statements, but not what the __init__.py of a package
+    pulls in: with fastapi imported in core/config/__init__.py the
+    contract stayed kept, and the probe loaded FastAPI.
+    """
+
+    def test_loads_none_of_the_forbidden_modules(self, tmp_path):
+        """[EC] The modules the contract forbids are not loaded at all.
+
+        In a subprocess, because in this one conftest.py has already
+        imported the whole app.
+        """
+        forbidden = probe_contract()["forbidden_modules"]
+
+        result = subprocess.run(
+            [sys.executable, "-c", LIST_LOADED],
+            cwd=tmp_path,  # no .env in this directory
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert [
+            name
+            for name in result.stdout.split()
+            if any(
+                name == module or name.startswith(f"{module}.") for module in forbidden
+            )
+        ] == []
 
 
 class TestDockerfile:

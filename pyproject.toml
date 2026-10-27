@@ -151,6 +151,28 @@ A router imports the HTTP client. OAuthProvider promises that its
 adapters raise only UnauthorizedError and ExternalServiceError: catch
 those. An httpx exception reaching a router is a bug in the adapter."""
 
+[[tool.importlinter.contracts]]
+name = "The health probe loads only what it needs"
+type = "forbidden"
+source_modules = ["fastapi_starter.healthcheck"]
+# main and serve are left out: the layers contract keeps the entry points apart
+forbidden_modules = [
+    "fastapi_starter.setup",
+    "fastapi_starter.features",
+    "fastapi",
+    "starlette",
+    "uvicorn",
+    "sqlalchemy",
+    "httpx",
+]
+broken_contract_guidance = """
+Docker runs healthcheck.py every 30 seconds, each time in a new Python
+process, so everything it imports is loaded again on every probe: in the
+image the probe takes about 350 ms to import, the app about 640 ms. The
+probe needs the standard library and ServerSettings: keep the rest out of
+it and out of the modules it imports. tests/test_healthcheck.py checks
+the same list in a running process."""
+
 
 # =============================================================================
 # PYTEST
