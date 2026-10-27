@@ -416,6 +416,45 @@ class TestSecrets:
         assert settings.keycloak.client_secret.get_secret_value() == "kc-secret-value"
 
 
+class TestErrorsShowNoValues:
+    """A settings error at startup names the problem, not the values read.
+
+    WHY: pydantic prints the input of a check that fails, and the input of a
+    settings class holds the lines of .env it has no field for, secrets
+    included. With DATABASE_PASSWORD on the last line of .env, the error of
+    the __Host- rule showed the whole password; the production refusal,
+    which promises no values, showed TEST_DATABASE_PASSWORD.
+    """
+
+    def test_cookie_error_shows_no_value(self, tmp_path):
+        """[SEC] The refusal of an old name, with a password last in .env."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("KEYCLOAK_COOKIE_SECURE=false\nDATABASE_PASSWORD=hunter2\n")
+
+        with pytest.raises(pydantic.ValidationError) as exc_info:
+            AuthCookieSettings(_env_file=env_file)
+
+        assert "hunter2" not in str(exc_info.value)
+
+    def test_production_error_shows_no_value(
+        self, production_env, monkeypatch, tmp_path
+    ):
+        """[SEC] The production refusal, with the test database's password in .env."""
+        monkeypatch.setenv("APP_DEBUG", "true")
+        env_file = tmp_path / ".env"
+        env_file.write_text("TEST_DATABASE_PASSWORD=hunter2\n")
+
+        with pytest.raises(pydantic.ValidationError) as exc_info:
+            Settings(_env_file=env_file)
+
+        assert "hunter2" not in str(exc_info.value)
+
+    @pytest.mark.parametrize("cls", SETTINGS_CLASSES, ids=lambda cls: cls.__name__)
+    def test_every_class_hides_its_input(self, cls):
+        """[SEC] Every settings class keeps its input out of its errors."""
+        assert cls.model_config.get("hide_input_in_errors") is True
+
+
 class TestProductionChecks:
     """With APP_ENVIRONMENT=production, development values stop the startup.
 

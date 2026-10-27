@@ -16,6 +16,9 @@ class AuthCookieSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        # A failed check prints its input, which holds lines of .env: the
+        # error would show their values, secrets included
+        hide_input_in_errors=True,
     )
 
     name: str = Field(
