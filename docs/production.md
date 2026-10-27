@@ -34,7 +34,7 @@ Each line points to the section that explains it.
 - [ ] `SERVER_TRUSTED_HOSTS` names the domain of the API, and `SERVER_CORS_ORIGINS` the origin of the frontend.
 - [ ] The realm has an administrator of its own and the temporary one is deleted, brute force detection is on, and the realm of development is not imported: First start.
 - [ ] Nginx ends TLS for both names with `docs/nginx.conf`, and the console of Keycloak answers on `127.0.0.1` only: The proxy.
-- [ ] `curl -H "Host: api.example.com" http://127.0.0.1:8000/health/ready` answers 200. When the API does not start, its log names every value that production refuses (README, Configuration reference).
+- [ ] `curl -H "Host: api.example.com" http://127.0.0.1:8000/health/ready` answers 200. When the API does not start, its log names every value that production refuses ([operations.md](operations.md#settings)).
 - [ ] The refresh cookie keeps its defaults, `__Host-rt`, `Secure` and `SameSite=lax`: `compose.prod.yaml` passes no `AUTH_COOKIE_*`. Only for a frontend on another site, add `AUTH_COOKIE_SAMESITE: none` to the environment of `api` (`docs/frontend.md`).
 - [ ] Both databases are dumped on a schedule, the dumps leave the server, and a restore has been tried once: Backups.
 - [ ] `compose.prod.yaml` names the image of a release, not `latest`, and the next release follows A new release.
@@ -58,13 +58,13 @@ SERVER_CORS_ORIGINS=["https://app.example.com"]
 
 # Optional
 APP_LOG_LEVEL=INFO
-KEYCLOAK_AUDIENCE=                 # README, Keycloak
+KEYCLOAK_AUDIENCE=                 # docs/authentication.md, Checking the audience
 KEYCLOAK_ALLOWED_CLIENTS=[]        # .env.example
 STACK_SUBNET=172.30.0.0/24         # change it if the server has a network there
 APP_IMAGE=                         # another image than the release in compose.prod.yaml
 ```
 
-The API also checks its own settings: with `APP_ENVIRONMENT=production`, which `compose.prod.yaml` sets, it refuses to start on a development or example value, and names every variable to change (README, Configuration reference).
+The API also checks its own settings: with `APP_ENVIRONMENT=production`, which `compose.prod.yaml` sets, it refuses to start on a development or example value, and names every variable to change ([operations.md](operations.md#settings)).
 
 Keep the file readable by its owner only: `chmod 600 .env`.
 
