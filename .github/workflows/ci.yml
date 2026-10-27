@@ -185,10 +185,13 @@ jobs:
       # Smoke test without external services: create_app() builds settings,
       # logging, middleware and routes, as uvicorn does when the process
       # starts. Database and Keycloak are touched only by the lifespan.
+      # One route of each router, asked for by name: url_path_for fails when
+      # it is missing. len(app.routes) is not the number of routes: since
+      # FastAPI 0.137 an included router is one entry (tests/test_smoke.py).
       - name: Smoke test
         run: |
           docker run --rm fastapi-starter:ci python -c \
-            "from fastapi_starter.main import create_app; app = create_app(); assert app.routes; print(f'{len(app.routes)} routes registered')"
+            "from fastapi_starter.main import create_app; app = create_app(); print('routes found:', *(app.url_path_for(name) for name in ('root', 'liveness', 'get_me')))"
 
       # The app runs as appuser, who must not be able to change its own
       # code: as the owner, a process taken over could rewrite it, and a
