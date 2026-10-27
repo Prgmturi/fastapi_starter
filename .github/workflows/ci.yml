@@ -57,13 +57,16 @@ jobs:
         run: uv run pytest --tb=short --cov --cov-report=term --cov-report="markdown-append:$GITHUB_STEP_SUMMARY"
 
       # The tests must not depend on the machine that runs them: with a .env
-      # and production variables the result must stay the same.
+      # and production variables the result must stay the same. Both hold
+      # settings the app refuses to start with: a __Host- cookie without
+      # Secure, and a variable name from before 0.8.0.
       - name: Tests in a production-like environment
         env:
           APP_ENVIRONMENT: production
           SERVER_TRUSTED_HOSTS: '["api.example.com"]'
+          KEYCLOAK_COOKIE_NAME: rt
         run: |
-          printf 'KEYCLOAK_COOKIE_NAME=__Host-rt\nKEYCLOAK_COOKIE_SECURE=false\n' > .env
+          printf 'AUTH_COOKIE_NAME=__Host-rt\nAUTH_COOKIE_SECURE=false\n' > .env
           uv run pytest -q --tb=short -p no:cacheprovider
 
   integration:

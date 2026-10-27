@@ -4,6 +4,7 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from fastapi_starter.core.config.app import AppSettings
+from fastapi_starter.core.config.auth_cookie import AuthCookieSettings
 from fastapi_starter.core.config.database import DatabaseSettings
 from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.core.config.production import production_problems
@@ -20,6 +21,7 @@ class Settings(BaseSettings):
     )
 
     app: AppSettings = Field(default_factory=AppSettings)
+    auth_cookie: AuthCookieSettings = Field(default_factory=AuthCookieSettings)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     keycloak: KeycloakSettings = Field(default_factory=KeycloakSettings)
     server: ServerSettings = Field(default_factory=ServerSettings)
@@ -30,7 +32,7 @@ class Settings(BaseSettings):
         # per mistake
         if self.app.is_production:
             problems = production_problems(
-                self.app, self.database, self.keycloak, self.server
+                self.app, self.auth_cookie, self.database, self.keycloak, self.server
             )
             if problems:
                 raise ValueError(
@@ -49,6 +51,7 @@ def get_settings() -> Settings:
 __all__ = [
     "Settings",
     "AppSettings",
+    "AuthCookieSettings",
     "DatabaseSettings",
     "KeycloakSettings",
     "ServerSettings",

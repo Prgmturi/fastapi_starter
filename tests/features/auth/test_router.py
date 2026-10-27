@@ -476,11 +476,7 @@ class TestAllowedRedirectUris:
     @pytest.fixture
     def test_keycloak_settings(self) -> KeycloakSettings:
         """Overrides the feature fixture: one allowed redirect_uri."""
-        return KeycloakSettings(
-            cookie_name=TEST_COOKIE_NAME,
-            cookie_secure=False,
-            allowed_redirect_uris=[ALLOWED_REDIRECT_URI],
-        )
+        return KeycloakSettings(allowed_redirect_uris=[ALLOWED_REDIRECT_URI])
 
     @pytest.mark.parametrize("redirect_uri", UNLISTED)
     async def test_login_rejects_unlisted_uri(self, oauth_client, redirect_uri):

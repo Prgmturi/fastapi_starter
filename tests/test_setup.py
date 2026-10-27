@@ -361,6 +361,17 @@ class TestServicesReachTheRoutes:
             f"{settings.keycloak.auth_url}?"
         )
 
+    async def test_refresh_gets_the_cookie_settings(self, started_client):
+        """[HP] get_cookie_settings finds the cookie settings in app.state.
+
+        Without a cookie /auth/refresh answers 401, after reading the
+        cookie's name from those settings. A wrong name in the getter gives
+        500 instead.
+        """
+        response = await started_client.post("/auth/refresh")
+
+        assert response.status_code == 401
+
 
 class TestShutdownServices:
     """shutdown_services() — graceful shutdown.

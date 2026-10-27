@@ -8,29 +8,34 @@ from httpx import ASGITransport, AsyncClient
 
 from fastapi_starter.core.auth.dependencies import get_current_user
 from fastapi_starter.core.auth.schemas import TokenResponse
+from fastapi_starter.core.config.auth_cookie import AuthCookieSettings
 from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.features.auth.router import (
+    get_cookie_settings,
     get_keycloak_settings,
     get_oauth_provider,
 )
 
-# Cookie name used by all auth test fixtures — must match test_keycloak_settings.
+# Cookie name used by all auth test fixtures — must match test_cookie_settings.
 TEST_COOKIE_NAME = "rt"
 
 
 @pytest.fixture
 def test_keycloak_settings() -> KeycloakSettings:
-    """KeycloakSettings with a refresh cookie that works over plain http.
+    """KeycloakSettings with the code defaults."""
+    return KeycloakSettings()
 
-    The test client talks http, and httpx (like browsers) never sends a
-    Secure cookie over http. So cookie_secure=False, and cookie_name='rt'
-    because the __Host- prefix requires Secure.
+
+@pytest.fixture
+def test_cookie_settings() -> AuthCookieSettings:
+    """A refresh cookie that works over plain http.
+
+    The test client talks http, and httpx never sends a Secure cookie over
+    http. So secure=False, and the name 'rt' because the __Host- prefix
+    requires Secure.
     """
-    return KeycloakSettings(
-        cookie_name=TEST_COOKIE_NAME,
-        cookie_secure=False,
-        cookie_samesite="lax",
-        cookie_path="/",
+    return AuthCookieSettings(
+        name=TEST_COOKIE_NAME, secure=False, samesite="lax", path="/"
     )
 
 
@@ -60,10 +65,13 @@ def mock_oauth_provider(sample_token_response):
 
 
 @pytest.fixture
-def app_with_oauth(app, mock_oauth_provider, test_keycloak_settings):
-    """App with OAuthProvider and KeycloakSettings dependencies overridden."""
+def app_with_oauth(
+    app, mock_oauth_provider, test_keycloak_settings, test_cookie_settings
+):
+    """App with the OAuthProvider and the two settings dependencies overridden."""
     app.dependency_overrides[get_oauth_provider] = lambda: mock_oauth_provider
     app.dependency_overrides[get_keycloak_settings] = lambda: test_keycloak_settings
+    app.dependency_overrides[get_cookie_settings] = lambda: test_cookie_settings
     return app
 
 

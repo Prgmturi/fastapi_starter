@@ -36,6 +36,18 @@ SETTINGS_CLASSES: tuple[type[BaseSettings], ...] = (
 )
 
 
+def variable_name(cls: type[BaseSettings], field: str) -> str:
+    """The variable pydantic-settings reads for a field.
+
+    The prefix plus the field name, or the alias when the field has one:
+    AuthCookieSettings reads the names before 0.8.0 that way, to refuse them.
+    """
+    alias = cls.model_fields[field].validation_alias
+    if isinstance(alias, str):
+        return alias.upper()
+    return f"{cls.model_config.get('env_prefix', '')}{field}".upper()
+
+
 @pytest.fixture(autouse=True)
 def hermetic_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Make every test independent of the machine that runs it.
@@ -52,8 +64,7 @@ def hermetic_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         monkeypatch.setitem(cls.model_config, "env_file", None)
 
         # Remove exactly the variables this class would read.
-        prefix = cls.model_config.get("env_prefix", "")
-        names = {f"{prefix}{field}".upper() for field in cls.model_fields}
+        names = {variable_name(cls, field) for field in cls.model_fields}
         for variable in list(os.environ):
             if variable.upper() in names:
                 monkeypatch.delenv(variable)

@@ -111,8 +111,8 @@ class TestImport:
         """
         env = {
             **os.environ,
-            "KEYCLOAK_COOKIE_NAME": "__Host-rt",
-            "KEYCLOAK_COOKIE_SECURE": "false",
+            "AUTH_COOKIE_NAME": "__Host-rt",
+            "AUTH_COOKIE_SECURE": "false",
         }
 
         result = subprocess.run(

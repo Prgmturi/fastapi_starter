@@ -9,6 +9,7 @@ from fastapi_starter.core.auth.cookies import (
     set_refresh_cookie,
 )
 from fastapi_starter.core.auth.origin import require_allowed_origin
+from fastapi_starter.core.config.auth_cookie import AuthCookieSettings
 from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.core.exceptions import (
     ExternalServiceError,
@@ -37,6 +38,12 @@ def get_oauth_provider(request: Request) -> OAuthProvider:
 def get_keycloak_settings(request: Request) -> KeycloakSettings:
     """Get KeycloakSettings from app state."""
     settings: KeycloakSettings = request.app.state.settings.keycloak
+    return settings
+
+
+def get_cookie_settings(request: Request) -> AuthCookieSettings:
+    """Get the refresh cookie settings from app state."""
+    settings: AuthCookieSettings = request.app.state.settings.auth_cookie
     return settings
 
 
@@ -123,6 +130,7 @@ async def exchange_token(
     response: Response,
     oauth_provider: Annotated[OAuthProvider, Depends(get_oauth_provider)],
     keycloak_settings: Annotated[KeycloakSettings, Depends(get_keycloak_settings)],
+    cookie_settings: Annotated[AuthCookieSettings, Depends(get_cookie_settings)],
 ) -> AccessTokenResponse:
     """
     Exchange authorization code for tokens.
@@ -146,7 +154,7 @@ async def exchange_token(
         response=response,
         refresh_token=tokens.refresh_token,
         refresh_expires_in=tokens.refresh_expires_in,
-        settings=keycloak_settings,
+        settings=cookie_settings,
     )
 
     return AccessTokenResponse(
@@ -171,7 +179,7 @@ async def refresh_token(
     request: Request,
     response: Response,
     oauth_provider: Annotated[OAuthProvider, Depends(get_oauth_provider)],
-    keycloak_settings: Annotated[KeycloakSettings, Depends(get_keycloak_settings)],
+    cookie_settings: Annotated[AuthCookieSettings, Depends(get_cookie_settings)],
 ) -> AccessTokenResponse:
     """
     Refresh access token.
@@ -181,7 +189,7 @@ async def refresh_token(
     - Returns NEW access_token in body
     - Sets NEW refresh_token cookie (old one is invalidated by Keycloak)
     """
-    current_refresh_token = read_refresh_cookie(request, keycloak_settings)
+    current_refresh_token = read_refresh_cookie(request, cookie_settings)
 
     tokens = await oauth_provider.refresh_token(current_refresh_token)
 
@@ -189,7 +197,7 @@ async def refresh_token(
         response=response,
         refresh_token=tokens.refresh_token,
         refresh_expires_in=tokens.refresh_expires_in,
-        settings=keycloak_settings,
+        settings=cookie_settings,
     )
 
     return AccessTokenResponse(
@@ -211,7 +219,7 @@ async def logout(
     request: Request,
     response: Response,
     oauth_provider: Annotated[OAuthProvider, Depends(get_oauth_provider)],
-    keycloak_settings: Annotated[KeycloakSettings, Depends(get_keycloak_settings)],
+    cookie_settings: Annotated[AuthCookieSettings, Depends(get_cookie_settings)],
 ) -> MessageResponse:
     """
     Logout user.
@@ -222,7 +230,7 @@ async def logout(
     clean state regardless of provider availability.
     """
     # UnauthorizedError (missing cookie) propagates normally — no cookie to clear.
-    current_refresh_token = read_refresh_cookie(request, keycloak_settings)
+    current_refresh_token = read_refresh_cookie(request, cookie_settings)
 
     try:
         await oauth_provider.logout(current_refresh_token)
@@ -232,7 +240,7 @@ async def logout(
         # the client once the cookie is gone.
         logger.warning("logout_revocation_failed", exc_info=exc)
 
-    clear_refresh_cookie(response, keycloak_settings)
+    clear_refresh_cookie(response, cookie_settings)
     return MessageResponse(message="Logged out successfully")
 
 

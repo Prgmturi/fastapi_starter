@@ -9,6 +9,7 @@ computed fields produce correct URLs and security-sensitive fields are masked.
 """
 
 import importlib.metadata
+from pathlib import Path
 
 import pydantic
 import pytest
@@ -16,9 +17,13 @@ import pytest
 from fastapi_starter.core.config import Settings
 from fastapi_starter.core.config import app as app_module
 from fastapi_starter.core.config.app import AppSettings
+from fastapi_starter.core.config.auth_cookie import AuthCookieSettings
 from fastapi_starter.core.config.database import DatabaseSettings
 from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.core.config.server import ServerSettings
+from tests.conftest import SETTINGS_CLASSES
+
+ENV_EXAMPLE = Path(__file__).parents[3] / ".env.example"
 
 
 class TestAppSettings:
@@ -281,6 +286,108 @@ class TestKeycloakSettings:
         )
 
 
+class TestAuthCookieSettings:
+    """AuthCookieSettings — the refresh token cookie, AUTH_COOKIE_*.
+
+    WHY: the cookie is the app's, not Keycloak's, but until 0.8.0 its
+    settings were KEYCLOAK_COOKIE_*, inside KeycloakSettings. The browser
+    drops a __Host- cookie that has no Secure or another Path: the login
+    seems to work and every refresh answers 401. Nothing tested that rule.
+    """
+
+    def test_defaults_meet_the_host_prefix(self):
+        """[HP] __Host-rt, Secure, SameSite=lax, Path=/, and nothing else."""
+        assert AuthCookieSettings().model_dump() == {
+            "name": "__Host-rt",
+            "secure": True,
+            "samesite": "lax",
+            "path": "/",
+        }
+
+    def test_read_from_the_environment(self, monkeypatch):
+        """[HP] AUTH_COOKIE_* set the cookie, as over plain http in development."""
+        monkeypatch.setenv("AUTH_COOKIE_NAME", "rt")
+        monkeypatch.setenv("AUTH_COOKIE_SECURE", "false")
+        monkeypatch.setenv("AUTH_COOKIE_SAMESITE", "strict")
+        monkeypatch.setenv("AUTH_COOKIE_PATH", "/auth")
+
+        settings = AuthCookieSettings()
+
+        assert (settings.name, settings.secure, settings.samesite, settings.path) == (
+            "rt",
+            False,
+            "strict",
+            "/auth",
+        )
+
+    @pytest.mark.parametrize(
+        ("change", "named"),
+        [
+            ({"path": "/auth"}, "AUTH_COOKIE_PATH"),
+            ({"secure": False}, "AUTH_COOKIE_SECURE"),
+        ],
+        ids=["other-path", "not-secure"],
+    )
+    def test_host_prefix_rules(self, change, named):
+        """[EC] A __Host- name with another Path or without Secure is refused."""
+        with pytest.raises(pydantic.ValidationError) as exc_info:
+            AuthCookieSettings(name="__Host-rt", **change)
+
+        assert named in str(exc_info.value)
+
+    @pytest.mark.parametrize("setting", ["NAME", "SECURE", "SAMESITE", "PATH"])
+    def test_name_before_0_8_refused(self, monkeypatch, setting):
+        """[EC] A KEYCLOAK_COOKIE_* variable stops the startup, with the new name.
+
+        WHY: ignored, a renamed variable changes the cookie without a word.
+        KEYCLOAK_COOKIE_SECURE=false left in .env would give a Secure cookie
+        again, which a browser drops on a plain-http address other than
+        localhost.
+        """
+        monkeypatch.setenv(f"KEYCLOAK_COOKIE_{setting}", "anything")
+
+        with pytest.raises(pydantic.ValidationError) as exc_info:
+            AuthCookieSettings()
+
+        assert f"KEYCLOAK_COOKIE_{setting} is now AUTH_COOKIE_{setting}" in str(
+            exc_info.value
+        )
+
+    def test_name_before_0_8_refused_in_the_env_file(self, tmp_path):
+        """[EC] Also in .env, where the old names are left after an update."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("KEYCLOAK_COOKIE_SECURE=false\n")
+
+        with pytest.raises(pydantic.ValidationError) as exc_info:
+            AuthCookieSettings(_env_file=env_file)
+
+        assert "KEYCLOAK_COOKIE_SECURE is now AUTH_COOKIE_SECURE" in str(exc_info.value)
+
+    def test_keycloak_settings_have_no_cookie(self):
+        """[HP] The cookie settings left KeycloakSettings."""
+        assert not [
+            field for field in KeycloakSettings.model_fields if "cookie" in field
+        ]
+
+
+class TestEnvExample:
+    """.env.example, which the README copies to .env to run the app on the host.
+
+    WHY: nothing loaded it. A variable renamed in the code and not in the
+    example would stop the first start of every new developer.
+    """
+
+    def test_is_a_valid_configuration(self, monkeypatch):
+        """[HP] Every settings class starts from .env.example alone."""
+        for cls in SETTINGS_CLASSES:
+            monkeypatch.setitem(cls.model_config, "env_file", ENV_EXAMPLE)
+
+        settings = Settings()
+
+        # The example's value, not the default: the file was read
+        assert settings.auth_cookie.name == "rt"
+
+
 class TestSecrets:
     """Database password and Keycloak client secret.
 
@@ -340,8 +447,8 @@ class TestProductionChecks:
             ),
             # __Host- already demands Secure: the check matters for other names
             (
-                {"KEYCLOAK_COOKIE_NAME": "rt", "KEYCLOAK_COOKIE_SECURE": "false"},
-                "KEYCLOAK_COOKIE_SECURE",
+                {"AUTH_COOKIE_NAME": "rt", "AUTH_COOKIE_SECURE": "false"},
+                "AUTH_COOKIE_SECURE",
             ),
             (
                 {"KEYCLOAK_ALLOWED_REDIRECT_URIS": None},

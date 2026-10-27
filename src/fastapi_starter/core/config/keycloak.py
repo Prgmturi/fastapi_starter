@@ -1,5 +1,3 @@
-from typing import Literal
-
 from pydantic import Field, SecretStr, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -84,29 +82,6 @@ class KeycloakSettings(BaseSettings):
         default=30,
         description="Request timeout to fetch fresh keys from Keycloak",
     )
-    cookie_name: str = Field(
-        default="__Host-rt",
-        description=(
-            "HttpOnly cookie name for the refresh token. "
-            "The '__Host-' prefix enforces Secure, Path=/, no Domain at browser level."
-        ),
-    )
-    cookie_secure: bool = Field(
-        default=True,
-        description="""Set Secure flag on the refresh token cookie.
-        Disable only in development.""",
-    )
-    cookie_samesite: Literal["lax", "strict", "none"] = Field(
-        default="lax",
-        description="SameSite policy for the refresh token cookie.",
-    )
-    cookie_path: str = Field(
-        default="/",
-        description=(
-            "Path scope for the refresh token cookie. "
-            "Browser sends it only to this path prefix."
-        ),
-    )
 
     @field_validator("public_url")
     @classmethod
@@ -116,15 +91,6 @@ class KeycloakSettings(BaseSettings):
         if value and not value.startswith(("http://", "https://")):
             raise ValueError("public_url must start with http:// or https://")
         return value.rstrip("/")
-
-    @model_validator(mode="after")
-    def validate_host_prefix_constraints(self) -> "KeycloakSettings":
-        if self.cookie_name.startswith("__Host-"):
-            if self.cookie_path != "/":
-                raise ValueError("__Host- prefix requires cookie_path='/'")
-            if not self.cookie_secure:
-                raise ValueError("__Host- prefix requires cookie_secure=True")
-        return self
 
     @model_validator(mode="after")
     def default_allowed_clients_to_client_id(self) -> "KeycloakSettings":
