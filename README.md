@@ -265,7 +265,7 @@ The tests in `tests/integration/` run on a real Postgres, for what a mock cannot
 docker compose exec db createdb -U appbase appbase_test   # -U: DATABASE_USER
 ```
 
-CI runs them in a job of their own, with its own Postgres. They do not count towards the coverage threshold.
+Before the first test a fixture brings that database to the last migration (`alembic upgrade head`), as CI does, so no command is needed. CI runs them in a job of their own, with its own Postgres. They do not count towards the coverage threshold.
 
 ## Database access
 
