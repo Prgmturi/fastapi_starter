@@ -20,8 +20,9 @@ NAMING_CONVENTION = {
 class Base(DeclarativeBase):
     """Base class for SQLAlchemy models.
 
-    Alembic reads Base.metadata to autogenerate migrations, so every model
-    must be imported in alembic/env.py.
+    Alembic reads Base.metadata to autogenerate migrations. alembic/env.py
+    imports every module called models under features (migrations.py), so
+    a model belongs in one.
     """
 
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
