@@ -23,6 +23,7 @@ from jwt.algorithms import RSAAlgorithm
 from starlette.datastructures import State
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from fastapi_starter.adapters.keycloak.client import KeycloakClient
 from fastapi_starter.bootstrap import (
     create_keycloak_http_client,
     init_auth_service,
@@ -41,7 +42,6 @@ from fastapi_starter.core.database import DatabaseManager
 from fastapi_starter.core.error_middleware import UnhandledExceptionMiddleware
 from fastapi_starter.core.logging import LoggingMiddleware
 from fastapi_starter.core.security import SecureHeadersMiddleware
-from fastapi_starter.features.auth.client import KeycloakClient
 from fastapi_starter.main import create_app, lifespan
 
 

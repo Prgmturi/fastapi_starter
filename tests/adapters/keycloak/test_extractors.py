@@ -1,6 +1,6 @@
 """Tests for KeycloakClaimExtractor — claim parsing and role mapping.
 
-Module under test: src/fastapi_starter/core/auth/extractors.py
+Module under test: src/fastapi_starter/adapters/keycloak/extractors.py
 Layer: Core logic (no mocks needed — pure transformation from dict to User)
 
 WHY these tests exist: KeycloakClaimExtractor is the Keycloak-specific adapter
@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, call
 
 import pytest
 
-from fastapi_starter.core.auth.extractors import KeycloakClaimExtractor
+from fastapi_starter.adapters.keycloak.extractors import KeycloakClaimExtractor
 from fastapi_starter.core.auth.protocols import ClaimExtractor
 from fastapi_starter.core.auth.schemas import RoleEnum
 from fastapi_starter.core.exceptions import UnauthorizedError
@@ -34,7 +34,7 @@ def logger(monkeypatch) -> MagicMock:
     (cache_logger_on_first_use), so capture_logs cannot see them.
     """
     fake = MagicMock()
-    monkeypatch.setattr("fastapi_starter.core.auth.extractors.logger", fake)
+    monkeypatch.setattr("fastapi_starter.adapters.keycloak.extractors.logger", fake)
     return fake
 
 

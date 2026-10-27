@@ -91,37 +91,40 @@ root_package = "fastapi_starter"
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "Layers: main, serve, healthcheck -> bootstrap, exception_handlers -> features -> core"
+name = "Layers: main, serve, healthcheck -> bootstrap, exception_handlers -> features, adapters -> core"
 type = "layers"
 layers = [
     # The entry points: the app factory and the image's two commands
     "fastapi_starter.main | fastapi_starter.serve | fastapi_starter.healthcheck",
     "fastapi_starter.bootstrap | fastapi_starter.exception_handlers",
-    "fastapi_starter.features",
+    # Siblings that never import each other: a feature reaches an adapter
+    # only through its port, which bootstrap.py fills
+    "fastapi_starter.features | fastapi_starter.adapters",
     "fastapi_starter.core",
 ]
 broken_contract_guidance = """
-A module imports from a layer above its own. core is the infrastructure
-features build on, bootstrap.py wires adapters to ports, main.py builds the
-app. Move the shared code down a layer, or have the layer above pass it
-in, as bootstrap.py does with the adapters."""
+A module imports from a layer above its own, or a feature and an adapter
+import each other. core is what features and adapters build on,
+bootstrap.py wires the adapters to their ports, main.py builds the app.
+Move the shared code down a layer, or have the layer above pass it in,
+as bootstrap.py does with the adapters."""
 
 [[tool.importlinter.contracts]]
 name = "Ports import no adapter"
 type = "forbidden"
 source_modules = ["fastapi_starter.**.protocols"]
 forbidden_modules = [
-    "fastapi_starter.core.auth.extractors",
-    "fastapi_starter.core.auth.jwks",
-    "fastapi_starter.core.auth.jwks_manager",
+    # Every adapter, those to come included
+    "fastapi_starter.adapters",
+    # The implementations that stay in core
     "fastapi_starter.core.auth.service",
     "fastapi_starter.core.database.manager",
-    "fastapi_starter.features.auth.client",
 ]
 broken_contract_guidance = """
 A protocol (port) imports an implementation (adapter). Adapters depend
 on ports, never the other way round: put the types a port needs in a
-schemas module. A new adapter goes in forbidden_modules above."""
+schemas module. Every module of adapters/ is forbidden here; an
+implementation that stays in core goes in forbidden_modules above."""
 
 [[tool.importlinter.contracts]]
 name = "AuthService knows no JWT or HTTP library"
@@ -130,12 +133,12 @@ source_modules = ["fastapi_starter.core.auth.service"]
 forbidden_modules = ["jwt", "httpx"]
 broken_contract_guidance = """
 AuthService works only through its ports, TokenDecoder and ClaimExtractor.
-PyJWT belongs in core/auth/jwks.py, httpx in the Keycloak adapters."""
+PyJWT and httpx belong in the Keycloak adapters, in adapters/keycloak/."""
 
 [[tool.importlinter.contracts]]
 name = "Auth knows no database"
 type = "forbidden"
-source_modules = ["fastapi_starter.core.auth"]
+source_modules = ["fastapi_starter.core.auth", "fastapi_starter.adapters.keycloak"]
 forbidden_modules = ["fastapi_starter.core.database", "sqlalchemy"]
 broken_contract_guidance = """
 Validating a token needs no database. If auth ever needs stored data,
@@ -159,6 +162,7 @@ source_modules = ["fastapi_starter.healthcheck"]
 forbidden_modules = [
     "fastapi_starter.bootstrap",
     "fastapi_starter.features",
+    "fastapi_starter.adapters",
     "fastapi",
     "starlette",
     "uvicorn",

@@ -12,7 +12,7 @@ A backend template built with FastAPI to learn and apply real architectural patt
 | Layer | What it does |
 |---|---|
 | **Auth** | Full OAuth2 + PKCE flow via Keycloak. JWT validation through JWKS with key rotation. Refresh tokens in HttpOnly cookies. |
-| **Architecture** | Hexagonal (Ports & Adapters). Core logic talks only to protocols — swap Keycloak for Auth0 without touching `AuthService`. |
+| **Architecture** | Hexagonal (Ports & Adapters). Core logic talks only to protocols; the Keycloak adapters live in `adapters/keycloak/`, and `AuthService` never sees them. |
 | **Database** | Async PostgreSQL with SQLAlchemy 2.0. Connection pooling, session lifecycle, base repository pattern. |
 | **Config** | Pydantic Settings, layered by domain (`AppSettings`, `DatabaseSettings`, etc.), loaded from `.env`. |
 | **Logging** | structlog. One format for every line, uvicorn's and SQLAlchemy's too: JSON in production with service metadata, colorized in development. Request IDs on every log line. |
@@ -21,18 +21,21 @@ A backend template built with FastAPI to learn and apply real architectural patt
 
 ## Architecture
 
-The project is split into two layers that don't bleed into each other:
+The project is split into three parts that don't bleed into each other:
 
 ```
-core/       ← infrastructure: auth, database, config, logging, errors
+core/       ← ports (Protocol classes), auth logic, database, config, logging, errors
+adapters/   ← the code that talks to an external service, one folder each: keycloak/
 features/   ← business logic: your endpoints go here
 ```
 
-`core/` defines behavior through `Protocol` classes (ports). Concrete implementations (adapters) live alongside them but are only wired together in one place — `bootstrap.py`. This means `AuthService` has no idea what PyJWT is, `JWKSManager` has no idea what SQLAlchemy is, and adding a feature doesn't require touching infrastructure code.
+`core/` defines behavior through `Protocol` classes (ports). The adapters implement them, and one module builds them and wires each to its port: `bootstrap.py`. A feature never imports an adapter: it asks for the port, as the auth router asks for `OAuthProvider`. This means `AuthService` has no idea what PyJWT is, `JWKSManager` has no idea what SQLAlchemy is, and adding a feature doesn't require touching infrastructure code.
+
+Another identity provider means another folder next to `adapters/keycloak/`, its settings in `core/config/` and its wiring in `bootstrap.py`. Two places still name Keycloak outside the adapters: the auth router reads the allowed redirect URIs from `KeycloakSettings`, and the production checks in `core/config/production.py` name the `KEYCLOAK_*` variables. The database is not an adapter: features work with SQLAlchemy sessions (`DbSession`) directly, so SQLAlchemy is part of `core/`.
 
 CI checks these rules on every push and pull request, so breaking one fails the build:
 
-- `uv run lint-imports` checks the import contracts in `pyproject.toml` (`[tool.importlinter]`). The layers are the entry points (`main`, `serve`, `healthcheck`) → `bootstrap`, `exception_handlers` → `features` → `core`, and a module never imports from a layer above its own. Protocols import no adapter, `AuthService` imports neither PyJWT nor httpx, `core/auth/` never touches the database, routers don't import httpx, and the health probe loads neither the app nor FastAPI, SQLAlchemy or httpx. A broken contract prints what to do instead.
+- `uv run lint-imports` checks the import contracts in `pyproject.toml` (`[tool.importlinter]`). The layers are the entry points (`main`, `serve`, `healthcheck`) → `bootstrap`, `exception_handlers` → `features` and `adapters`, which never import each other → `core`, and a module never imports from a layer above its own. Protocols import no adapter, `AuthService` imports neither PyJWT nor httpx, `core/auth/` and the Keycloak adapters never touch the database, routers don't import httpx, and the health probe loads neither the app nor FastAPI, SQLAlchemy or httpx. A broken contract prints what to do instead.
 - mypy checks that each adapter still matches its port: `bootstrap.py` stores every adapter in `app.state` through a variable typed as the port.
 - ruff rejects imports inside functions (`PLC0415`).
 
@@ -43,8 +46,10 @@ src/fastapi_starter/
 ├── healthcheck.py           # The image's health probe
 ├── bootstrap.py             # Composition root — the only place that knows everything
 ├── exception_handlers.py    # Exceptions → RFC 9457 error responses
+├── adapters/
+│   └── keycloak/            # Login and tokens, signing keys, token checks, claims → User
 ├── core/
-│   ├── auth/                # JWT validation, JWKS, Keycloak claim extraction
+│   ├── auth/                # Ports, AuthService, route dependencies, the refresh cookie
 │   ├── config/              # Settings by domain, loaded from .env
 │   ├── database/            # Async engine, session factory, base repository
 │   ├── logging/             # structlog config + request logging middleware

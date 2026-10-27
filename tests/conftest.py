@@ -3,8 +3,9 @@ Root conftest — global fixtures available to all tests.
 
 Fixture hierarchy:
     tests/conftest.py           ← YOU ARE HERE (isolation, settings, app, client, users)
-    tests/core/auth/conftest.py ← auth-specific (claims, tokens, mock decoders)
+    tests/core/auth/conftest.py ← auth (mock ports, AuthService)
     tests/core/database/conftest.py ← db-specific (mock session, mock manager)
+    tests/adapters/keycloak/conftest.py ← Keycloak adapters (claims, mock key provider)
     tests/features/conftest.py  ← feature-level (dependency overrides)
     tests/features/auth/conftest.py ← auth endpoints (mock oauth provider)
 """

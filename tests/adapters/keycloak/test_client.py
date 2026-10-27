@@ -1,6 +1,6 @@
 """Tests for KeycloakClient — HTTP token operations.
 
-Module under test: src/fastapi_starter/features/auth/client.py
+Module under test: src/fastapi_starter/adapters/keycloak/client.py
 Layer: Infrastructure adapter (mock httpx responses)
 
 WHY these tests exist: KeycloakClient makes HTTP calls to Keycloak.
@@ -14,11 +14,11 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 
+from fastapi_starter.adapters.keycloak.client import KeycloakClient
 from fastapi_starter.core.auth.protocols import OAuthProvider
 from fastapi_starter.core.auth.schemas import TokenResponse
 from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.core.exceptions import ExternalServiceError, UnauthorizedError
-from fastapi_starter.features.auth.client import KeycloakClient
 
 
 @pytest.fixture

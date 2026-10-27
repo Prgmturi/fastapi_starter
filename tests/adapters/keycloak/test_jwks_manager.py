@@ -1,6 +1,6 @@
 """Tests for JWKSManager — fetching and caching Keycloak's signing keys.
 
-Module under test: src/fastapi_starter/core/auth/jwks_manager.py
+Module under test: src/fastapi_starter/adapters/keycloak/jwks_manager.py
 Layer: Infrastructure adapter (fake Keycloak behind httpx.MockTransport)
 
 WHY these tests exist: every authenticated request asks this class for a
@@ -17,7 +17,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt.algorithms import RSAAlgorithm
 
-from fastapi_starter.core.auth.jwks_manager import JWKSManager
+from fastapi_starter.adapters.keycloak.jwks_manager import JWKSManager
 from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.core.exceptions import ServiceUnavailableError
 from fastapi_starter.core.protocols import KeyProvider

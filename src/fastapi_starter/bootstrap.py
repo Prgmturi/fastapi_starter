@@ -15,9 +15,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.datastructures import State
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from fastapi_starter.core.auth.extractors import KeycloakClaimExtractor
-from fastapi_starter.core.auth.jwks import JWKSTokenDecoder
-from fastapi_starter.core.auth.jwks_manager import JWKSManager
+from fastapi_starter.adapters.keycloak.client import KeycloakClient
+from fastapi_starter.adapters.keycloak.extractors import KeycloakClaimExtractor
+from fastapi_starter.adapters.keycloak.jwks import JWKSTokenDecoder
+from fastapi_starter.adapters.keycloak.jwks_manager import JWKSManager
 from fastapi_starter.core.auth.protocols import OAuthProvider, TokenValidator
 from fastapi_starter.core.auth.service import AuthService
 from fastapi_starter.core.body_limit import BodySizeLimitMiddleware
@@ -35,7 +36,6 @@ from fastapi_starter.core.logging import (
     get_logger,
 )
 from fastapi_starter.core.security import SecureHeadersMiddleware
-from fastapi_starter.features.auth.client import KeycloakClient
 from fastapi_starter.features.health.router import health_router
 
 logger = get_logger(__name__)
