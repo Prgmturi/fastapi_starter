@@ -4,7 +4,10 @@ WHY these tests exist: every CI job ran on ubuntu-latest, which GitHub
 moves to Ubuntu 26.04 one repository at a time between 19 October and
 19 November 2026, so any run could land on a new image. And the
 pre-commit hooks and CI checked the same things with different tools:
-a file or a commit message the hook accepted could fail CI.
+a file or a commit message the hook accepted could fail CI. And no file
+named the version of Python: on a machine without 3.13, uv took the newest
+it could download, 3.15.1, and the install stopped on a package with no
+wheel for it (tried on 27 October 2026).
 """
 
 import ast
@@ -16,6 +19,8 @@ ROOT = Path(__file__).parent.parent
 WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
 COMMITS_WORKFLOW = ROOT / ".github" / "workflows" / "commits.yml"
 PRE_COMMIT = ROOT / ".pre-commit-config.yaml"
+PYTHON_VERSION = ROOT / ".python-version"
+DOCKERFILE = ROOT / "docker" / "Dockerfile"
 RUNNER = "ubuntu-24.04"
 PR_TITLE = "${{ github.event.pull_request.title }}"
 
@@ -136,3 +141,46 @@ class TestMypy:
         imported = imported_by_src()
 
         assert [m for m in modules if m.split(".")[0] not in imported] == []
+
+
+def version_tuple(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
+class TestPythonVersion:
+    """.python-version: the Python of development, of CI and of the image.
+
+    uv reads the file, and downloads that version when the machine has
+    none: without it, uv took the newest Python it could get.
+    """
+
+    def test_the_image_runs_the_version_of_the_file(self):
+        """[HP] Both FROM of the Dockerfile use python:<the file's version>.
+
+        The FROM lines cannot read the file: the image is pinned by digest.
+        """
+        versions = re.findall(
+            r"^FROM python:(\d+\.\d+)-slim@", DOCKERFILE.read_text(), re.M
+        )
+
+        assert versions == [PYTHON_VERSION.read_text().strip()] * 2
+
+    def test_ci_takes_the_version_from_the_file(self):
+        """[EC] No workflow names a Python of its own: the file is the only one."""
+        assert [
+            path.name
+            for path in WORKFLOWS
+            if re.search(r"^\s*python-version:", path.read_text(), re.M)
+        ] == []
+
+    def test_the_version_meets_requires_python(self):
+        """[HP] The version of the file is one that pyproject.toml accepts."""
+        requires = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"][
+            "requires-python"
+        ]
+        lowest = re.fullmatch(r">=(\d+\.\d+)", requires)
+
+        assert lowest is not None, requires
+        assert version_tuple(PYTHON_VERSION.read_text().strip()) >= version_tuple(
+            lowest.group(1)
+        )

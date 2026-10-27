@@ -30,7 +30,6 @@ jobs:
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
-          python-version: "3.13"
 
       # --locked: stop if uv.lock is out of date with pyproject.toml.
       # --frozen installed it without comparing the two.
@@ -109,7 +108,6 @@ jobs:
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
-          python-version: "3.13"
 
       - name: Install dependencies
         run: uv sync --locked
@@ -149,7 +147,6 @@ jobs:
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
-          python-version: "3.13"
 
       - name: Install dependencies
         run: uv sync --locked

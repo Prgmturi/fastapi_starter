@@ -77,7 +77,7 @@ The `migrate` service starts the same image with another command, `alembic upgra
 
 ## Getting started
 
-**Prerequisites:** Docker. To work on the code, also Python 3.13 and [uv](https://docs.astral.sh/uv/) 0.13 or later (an older uv stops with an error in this project: run `uv self update`).
+**Prerequisites:** Docker. To work on the code, also [uv](https://docs.astral.sh/uv/) 0.13 or later (an older uv stops with an error in this project: run `uv self update`). uv installs the Python of `.python-version`, 3.13, when the machine does not have it.
 
 ```bash
 git clone https://github.com/Prgmturi/fastapi_starter.git
