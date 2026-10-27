@@ -72,3 +72,8 @@ def test_log_in_call_refresh_and_log_out(api):
 
     logout = api.post("/auth/logout", headers={"Cookie": refresh_cookie(refreshed)})
     assert logout.status_code == 200, logout.text
+
+    # The API answers 200 even when Keycloak refuses the logout: only a
+    # refresh with the same token shows that Keycloak ended the session
+    after = api.post("/auth/refresh", headers={"Cookie": refresh_cookie(refreshed)})
+    assert after.status_code == 401, after.text

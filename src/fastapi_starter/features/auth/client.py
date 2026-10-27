@@ -40,10 +40,7 @@ class KeycloakClient:
     @property
     def logout_url(self) -> str:
         """Keycloak logout endpoint."""
-        return (
-            f"{self._settings.server_url}/realms/"
-            f"{self._settings.realm}/protocol/openid-connect/logout"
-        )
+        return self._settings.logout_url
 
     @property
     def auth_url(self) -> str:

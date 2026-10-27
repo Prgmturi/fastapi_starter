@@ -126,6 +126,11 @@ class KeycloakSettings(BaseSettings):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
+    def logout_url(self) -> str:
+        return f"{self.server_url}/realms/{self.realm}/protocol/openid-connect/logout"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
     def auth_url(self) -> str:
         """Where the browser is sent to log in, so the public address."""
         return f"{self.issuer}/protocol/openid-connect/auth"

@@ -212,6 +212,22 @@ class TestKeycloakSettings:
             "http://localhost:8080/realms/test-realm/protocol/openid-connect/token"
         )
 
+    def test_logout_url_construction(self):
+        """[HP] logout_url = server_url/realms/{realm}/protocol/openid-connect/logout.
+
+        WHY: it was the one Keycloak URL built outside these settings, in
+        KeycloakClient, and no test checked it.
+        """
+        settings = KeycloakSettings(
+            scheme="http",
+            host="localhost",
+            port=8080,
+            realm="test-realm",
+        )
+        assert settings.logout_url == (
+            "http://localhost:8080/realms/test-realm/protocol/openid-connect/logout"
+        )
+
     def test_auth_url_construction(self):
         """[HP] auth_url = server_url/realms/{realm}/protocol/openid-connect/auth."""
         settings = KeycloakSettings(
@@ -249,6 +265,9 @@ class TestKeycloakSettings:
         )
         assert settings.certs_url == (
             "http://keycloak:8080/realms/shop/protocol/openid-connect/certs"
+        )
+        assert settings.logout_url == (
+            "http://keycloak:8080/realms/shop/protocol/openid-connect/logout"
         )
 
     def test_without_public_url_everything_is_internal(self):
