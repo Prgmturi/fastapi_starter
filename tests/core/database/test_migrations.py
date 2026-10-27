@@ -97,10 +97,13 @@ class TestRefuseEmptyAutogenerate:
 
 
 def test_finds_the_model_of_notes():
-    """[HP] On the real features: the notes table reaches Base.metadata."""
+    """[HP] On the real features: the notes table reaches Base.metadata.
+
+    A membership, not the whole list: adding a feature must not break it.
+    """
     found = import_models(fastapi_starter.features)
 
-    assert found == ["fastapi_starter.features.notes.persistence.models"]
+    assert "fastapi_starter.features.notes.persistence.models" in found
     assert "notes" in Base.metadata.tables
 
 

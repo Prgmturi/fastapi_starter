@@ -95,7 +95,7 @@ That starts the whole stack of `compose.yaml`, with development values and no `.
 | `keycloak` | http://localhost:8080, console user `admin`, password `admin` | Keycloak, in development mode |
 | `keycloak-db` | | Keycloak's Postgres |
 
-`uv run pytest -m e2e` logs the test user in through Keycloak and calls the API with the token, as a frontend would (CI does it on every push). The ports come from `SERVER_PORT`, `KEYCLOAK_PORT` and `DATABASE_PORT`, exported or in `.env`.
+`uv run pytest -m e2e` logs the test user in through Keycloak and calls the API with the token, as a frontend would (CI does it on every push). The stack takes its ports from `SERVER_PORT`, `KEYCLOAK_PORT` and `DATABASE_PORT`, exported or in `.env`; the test calls the API at `E2E_API_URL`, `http://localhost:8000` by default. With the stack on another port, export it too (`E2E_API_URL=http://localhost:18000`), or the test calls whatever answers on 8000.
 
 ### Keycloak
 
@@ -146,37 +146,49 @@ The API accepts only access tokens (`typ: Bearer`) issued to `KEYCLOAK_CLIENT_ID
 
 ## Adding a feature
 
-```bash
-mkdir -p src/fastapi_starter/features/products
-touch src/fastapi_starter/features/products/{__init__,router,schemas}.py
-```
+`features/notes/` is the example to copy: the notes of each user, at `/notes`. It has three layers, and each imports only the ones below it:
 
-In `router.py`:
+| Layer | What it holds | What it may import |
+|---|---|---|
+| `api/` | the routes (`router.py`), the service of each request (`dependencies.py`), what the client sends (`schemas/request/`) and what the API returns (`schemas/response/`) | the two layers below, FastAPI, `core` |
+| `persistence/` | the table (`models.py`) and the repository that implements the port of the domain (`repository.py`) | `domain/`, SQLAlchemy, `core` |
+| `domain/` | the business rules in plain Python: the entity (`note.py`), the port (`protocols.py`), the service (`service.py`) | the standard library and `core.exceptions` |
 
-```python
-from fastapi import APIRouter
-from fastapi_starter.core.auth.dependencies import CurrentUser, AdminUser
-from fastapi_starter.core.database.dependencies import DbSession
+Two import contracts in `pyproject.toml` check it on every push: the arrows between the layers, and a domain free of FastAPI, Starlette, pydantic, SQLAlchemy and httpx. That is why the rules in `domain/service.py` are tested with a repository kept in memory (`tests/features/notes/fakes.py`), with no HTTP and no database.
 
-router = APIRouter(prefix="/products", tags=["Products"])
+To add a feature, `tasks` for example:
 
-@router.get("/")
-async def list_products(user: CurrentUser, db: DbSession):
-    ...
-```
+1. Copy the example and its tests:
 
-Register in `main.py` inside `create_app()`, alongside the existing routers:
+   ```bash
+   cp -r src/fastapi_starter/features/notes src/fastapi_starter/features/tasks
+   cp -r tests/features/notes tests/features/tasks
+   cp tests/integration/test_notes.py tests/integration/test_tasks.py
+   ```
 
-```python
-from fastapi_starter.features.products.router import router as products_router
+   Then rename `notes` and `note` inside the copies, in the names of the files too: the three `note.py` become `task.py`.
+2. Register the router in `create_app()` of `main.py`: import `tasks_router` from `fastapi_starter.features.tasks.api.router`, and add `app.include_router(tasks_router)` after the others.
+3. Add `"fastapi_starter.features.tasks"` to the `containers` of the contract "Inside a feature" in `pyproject.toml`.
+4. Write the migration. `alembic/env.py` imports every module called `models` under `features/`, so it finds the new table by itself:
 
-# inside create_app():
-app.include_router(health_router)
-app.include_router(auth_router)
-app.include_router(products_router)  # add yours here
-```
+   ```bash
+   uv run alembic revision --autogenerate -m "create tasks table"
+   uv run alembic upgrade head
+   ```
 
-`CurrentUser`, `AdminUser`, `DbSession` are type aliases — FastAPI resolves the entire dependency chain automatically.
+   Read the file it writes in `alembic/versions/` before you commit it.
+5. Let ruff tidy the copy and the migration, `uv run ruff check --fix` and `uv run ruff format`: the new names change the order of some imports, and Alembic writes the migration in its own style. Then run the checks of CI: `uv run pytest`, `uv run pytest -m integration`, `uv run mypy src/` and `uv run lint-imports`.
+
+What the example does on purpose, and a copy should keep:
+
+- The owner comes from the token (`user.id`), never from the body. The request schemas refuse unknown fields (`extra="forbid"`), so a client that sends `owner_id` gets 422.
+- Every query of the repository filters by owner in the SQL itself, and a note of another user answers 404, like a missing one: no one learns which ids exist.
+- The domain decides the id, a UUID, and the times, so nothing has to be read back from the database after a save.
+- A length limit is a business rule: `TITLE_MAX_LENGTH` lives in `domain/note.py`, and the request schema and the column take it from there.
+
+A feature with no rules of its own can stay flat, as `features/auth/` and `features/health/` are: a `router.py` that takes `DbSession` and a repository on `BaseRepository` (Database access, below), with the table in a `models.py`. Choose the three layers when the feature has rules worth testing without a database.
+
+To drop the example, `git grep -il notes` lists every file that names it. Besides its two folders and `tests/integration/test_notes.py`, they are `main.py`, two contracts in `pyproject.toml` (the one of the domains goes too, if no other feature has a domain), the migration in `alembic/versions/`, the smoke test in `.github/workflows/ci.yml` and `tests/test_smoke.py`, the calls to `/notes` in `tests/e2e/test_login.py`, and a few lines of `tests/test_main.py`, `tests/test_package.py`, `tests/test_alembic.py`, `tests/test_import_contracts.py` and `tests/core/database/test_migrations.py`. A database that already has the table needs a migration that drops it.
 
 ## Protecting endpoints
 

@@ -66,15 +66,21 @@ def test_every_named_module_exists(contract, name):
 
 
 def test_patterns_are_read_as_import_linter_does():
-    """[HP] * stands for one part of a name, ** for one or more."""
-    assert sorted(matching_modules("fastapi_starter.features.*.router")) == [
-        "fastapi_starter.features.auth.router",
-        "fastapi_starter.features.health.router",
-    ]
+    """[HP] * stands for one part of a name, ** for one or more.
+
+    Memberships, not whole lists: adding a feature must not break the test.
+    """
+    one_part = matching_modules("fastapi_starter.features.*.router")
+    assert "fastapi_starter.features.auth.router" in one_part
+    assert "fastapi_starter.features.notes.api.router" not in one_part
+
+    any_depth = matching_modules("fastapi_starter.**.router")
+    assert "fastapi_starter.features.notes.api.router" in any_depth
+
     # The ports that "Ports import no adapter" covers, the feature's included
-    assert sorted(matching_modules("fastapi_starter.**.protocols")) == [
+    assert {
         "fastapi_starter.core.auth.protocols",
         "fastapi_starter.core.database.protocols",
         "fastapi_starter.core.protocols",
         "fastapi_starter.features.notes.domain.protocols",
-    ]
+    } <= set(matching_modules("fastapi_starter.**.protocols"))
