@@ -33,6 +33,8 @@ features/   ← business logic: your endpoints go here
 
 Another identity provider means another folder next to `adapters/keycloak/`, its settings in `core/config/` and its wiring in `bootstrap.py`. Two places still name Keycloak outside the adapters: the auth router reads the allowed redirect URIs from `KeycloakSettings`, and the production checks in `core/config/production.py` name the `KEYCLOAK_*` variables. The database is not an adapter: features work with SQLAlchemy sessions (`DbSession`) directly, so SQLAlchemy is part of `core/`.
 
+Why the project is built this way, one decision at a time: [docs/adr/](docs/adr/README.md).
+
 CI checks these rules on every push and pull request, so breaking one fails the build:
 
 - `uv run lint-imports` checks the import contracts in `pyproject.toml` (`[tool.importlinter]`). The layers are the entry points (`main`, `serve`, `healthcheck`) → `bootstrap`, `exception_handlers` → `features` and `adapters`, which never import each other → `core`, and a module never imports from a layer above its own. Protocols import no adapter, `AuthService` imports neither PyJWT nor httpx, `core/auth/` and the Keycloak adapters never touch the database, routers don't import httpx, and the health probe loads neither the app nor FastAPI, SQLAlchemy or httpx. A broken contract prints what to do instead.
