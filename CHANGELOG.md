@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.1](https://github.com/Prgmturi/fastapi_starter/compare/v0.8.0...v0.8.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **deps:** bump alembic from 1.18.3 to 1.20.1 ([#66](https://github.com/Prgmturi/fastapi_starter/issues/66)) ([bf7d0f4](https://github.com/Prgmturi/fastapi_starter/commit/bf7d0f49f9e6595a6cbd4fc128798c183fc2e486))
+* **deps:** bump asyncpg from 0.31.0 to 0.32.0 ([#64](https://github.com/Prgmturi/fastapi_starter/issues/64)) ([36f2af4](https://github.com/Prgmturi/fastapi_starter/commit/36f2af4e7d6fbfedb7fdfa8af18d327d62174b5b))
+* **deps:** bump fastapi from 0.161.1 to 0.162.0 ([#68](https://github.com/Prgmturi/fastapi_starter/issues/68)) ([6bdb06e](https://github.com/Prgmturi/fastapi_starter/commit/6bdb06e0efe4b4306e8b31660d23d219aea8e54b))
+* **deps:** bump structlog from 25.5.0 to 26.1.0 ([#67](https://github.com/Prgmturi/fastapi_starter/issues/67)) ([e602f3a](https://github.com/Prgmturi/fastapi_starter/commit/e602f3a04b2ab92b9d28b418088a65b52883d781))
+
 ## [0.8.0](https://github.com/Prgmturi/fastapi_starter/compare/v0.7.2...v0.8.0) (2026-10-28)
 
 
