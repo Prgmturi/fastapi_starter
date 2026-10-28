@@ -29,14 +29,14 @@ services:
 
   migrate:
     build: !reset null
-    image: ${APP_IMAGE:-ghcr.io/prgmturi/fastapi_starter:0.7.2} # x-release-please-version
+    image: ${APP_IMAGE:-ghcr.io/prgmturi/fastapi_starter:0.8.0} # x-release-please-version
     environment:
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env}
     logging: *logging
 
   api:
     build: !reset null
-    image: ${APP_IMAGE:-ghcr.io/prgmturi/fastapi_starter:0.7.2} # x-release-please-version
+    image: ${APP_IMAGE:-ghcr.io/prgmturi/fastapi_starter:0.8.0} # x-release-please-version
     environment:
       APP_ENVIRONMENT: production
       APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}

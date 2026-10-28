@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.8.0](https://github.com/Prgmturi/fastapi_starter/compare/v0.7.2...v0.8.0) (2026-10-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* the refresh cookie settings and some modules have new names.
+    - KEYCLOAK_COOKIE_NAME, KEYCLOAK_COOKIE_SECURE, KEYCLOAK_COOKIE_SAMESITE and KEYCLOAK_COOKIE_PATH are now AUTH_COOKIE_*: the app refuses to start while an old name is set, and names the new one.
+    - setup.py is now bootstrap.py, and the Keycloak adapters moved from core/auth/ and features/auth/ to adapters/keycloak/.
+
+### Features
+
+* add the notes example, move the Keycloak adapters and rename the cookie settings ([#61](https://github.com/Prgmturi/fastapi_starter/issues/61)) ([24d4b5a](https://github.com/Prgmturi/fastapi_starter/commit/24d4b5a0d059969912544e1357816f43d3d82972))
+* **database:** alembic/env.py finds the models of every feature by itself ([24d4b5a](https://github.com/Prgmturi/fastapi_starter/commit/24d4b5a0d059969912544e1357816f43d3d82972))
+
+
+### Bug Fixes
+
+* **build:** .python-version pins the Python of development and CI ([24d4b5a](https://github.com/Prgmturi/fastapi_starter/commit/24d4b5a0d059969912544e1357816f43d3d82972))
+* **config:** settings errors no longer show the values of .env ([24d4b5a](https://github.com/Prgmturi/fastapi_starter/commit/24d4b5a0d059969912544e1357816f43d3d82972))
+
 ## [0.7.2](https://github.com/Prgmturi/fastapi_starter/compare/v0.7.1...v0.7.2) (2026-10-26)
 
 
