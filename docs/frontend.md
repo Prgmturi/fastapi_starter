@@ -61,6 +61,6 @@ Frontend (browser)                          API                         Keycloak
   - On two sites, such as `app.example.com` and `api.example.net`, the browser does not send a `lax` cookie with `fetch`. That takes `AUTH_COOKIE_SAMESITE=none`, which browsers accept only with `Secure`, so over https. Such a cookie is a third-party cookie, which some browsers block (Safari by default): keep the frontend and the API on one site when you can.
   - Over plain http, in development, use the values of `.env.example`: a name without `__Host-` (`rt`) and `AUTH_COOKIE_SECURE=false`. The app refuses to start with a `__Host-` name and no `Secure`.
 - **`X-Request-ID`.** Every response has it, and CORS lets JavaScript read it. Show it or log it with an error: the log lines of that request on the server carry the same id.
-- **Errors** are problem documents (`application/problem+json`) with `status`, `title` and `detail`. A 422 adds `errors`, one entry for each invalid field (README, Errors).
+- **Errors** are problem documents (`application/problem+json`) with `status`, `title` and `detail`. A 422 adds `errors`, one entry for each invalid field ([operations.md](operations.md#errors)).
 
 `tests/e2e/test_login.py` runs this whole flow against the stack, in Python: `pkce_pair` in `tests/e2e/browser.py` makes the two PKCE values.
