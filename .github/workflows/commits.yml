@@ -30,7 +30,6 @@ jobs:
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
-          python-version: "3.13"
 
       # Only the dev group: pre-commit, without the app and its dependencies
       - name: Install pre-commit

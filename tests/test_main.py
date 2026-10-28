@@ -51,6 +51,14 @@ class TestCreateApp:
         assert app.url_path_for("logout") == "/auth/logout"
         assert app.url_path_for("get_me") == "/auth/me"
 
+    def test_includes_notes_routes(self, settings):
+        app = create_app(settings)
+
+        assert app.url_path_for("list_notes") == "/notes"
+        assert app.url_path_for("create_note") == "/notes"
+        for name in ("get_note", "update_note", "delete_note"):
+            assert app.url_path_for(name, note_id="n") == "/notes/n"
+
     def test_includes_root_route(self, settings):
         app = create_app(settings)
 
@@ -111,8 +119,8 @@ class TestImport:
         """
         env = {
             **os.environ,
-            "KEYCLOAK_COOKIE_NAME": "__Host-rt",
-            "KEYCLOAK_COOKIE_SECURE": "false",
+            "AUTH_COOKIE_NAME": "__Host-rt",
+            "AUTH_COOKIE_SECURE": "false",
         }
 
         result = subprocess.run(

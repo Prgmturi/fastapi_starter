@@ -8,6 +8,9 @@ details that the exception handler converts to HTTP responses. Wrong status
 code = wrong HTTP response. Wrong hierarchy = exception handler misses it.
 """
 
+import subprocess
+import sys
+
 from fastapi_starter.core.exceptions import (
     AppExceptionError,
     ConflictError,
@@ -225,3 +228,34 @@ class TestExceptionHierarchy:
             assert issubclass(cls, AppExceptionError), (
                 f"{cls.__name__} must inherit from AppExceptionError"
             )
+
+
+class TestNoWebFramework:
+    """What importing the exceptions loads.
+
+    WHY: the business layer of a feature raises them (NotFoundError), and
+    that layer must not depend on FastAPI. The status codes came from
+    fastapi.status, so importing the exceptions loaded FastAPI and Starlette.
+    """
+
+    def test_import_loads_neither_fastapi_nor_starlette(self, tmp_path):
+        """[EC] The codes come from the standard library, http.HTTPStatus.
+
+        In a subprocess, because in this one conftest.py has already
+        imported the whole app.
+        """
+        code = (
+            "import sys, fastapi_starter.core.exceptions; "
+            "print(sorted({name.split('.')[0] for name in sys.modules} "
+            "& {'fastapi', 'starlette'}))"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=tmp_path,  # no .env in this directory
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "[]"

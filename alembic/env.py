@@ -6,8 +6,13 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
+import fastapi_starter.features
 from fastapi_starter.core.config import DatabaseSettings
 from fastapi_starter.core.database import Base, database_url
+from fastapi_starter.core.database.migrations import (
+    import_models,
+    refuse_empty_autogenerate,
+)
 
 # Alembic Config object
 config = context.config
@@ -16,31 +21,14 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Import all models here so Base.metadata is populated
-# from fastapi_starter.features.users.models import User  # esempio futuro
-
+# Every module called models under features, found by its name: a model
+# whose module nobody imports is missing from Base.metadata, so from every
+# migration, without an error.
+import_models(fastapi_starter.features)
 target_metadata = Base.metadata
 
-# --no-autogenerate-su-metadata-vuota ------------------------------------------
-# "alembic revision --autogenerate" confronta Base.metadata con lo schema del
-# database e genera le differenze. Se nessun modello è stato importato sopra,
-# Base.metadata è vuota e la differenza è "il database ha tutto, il codice
-# niente": alembic scrive un drop_table per OGNI tabella esistente.
-#
-# La migrazione risultante ha un aspetto plausibile e cancella la produzione.
-# Falliamo prima, e prima di aprire la connessione.
-#
-# Il controllo scatta solo su --autogenerate: "upgrade head" e "downgrade"
-# devono continuare a funzionare a metadata vuota, altrimenti non si potrebbe
-# applicare nessuna migrazione scritta a mano.
-if getattr(config.cmd_opts, "autogenerate", False) and not target_metadata.tables:
-    raise RuntimeError(
-        "Autogenerate interrotto: Base.metadata non contiene nessuna tabella.\n"
-        "Alembic genererebbe un drop_table per ogni tabella presente nel "
-        "database.\n"
-        "Importa i tuoi modelli in alembic/env.py (vedi la riga di esempio "
-        "qui sopra) prima di eseguire 'alembic revision --autogenerate'."
-    )
+if getattr(config.cmd_opts, "autogenerate", False):
+    refuse_empty_autogenerate(target_metadata)
 
 # Only the database settings: a migration uses nothing else. Loading every
 # setting made production refuse to migrate without the Keycloak secret, the

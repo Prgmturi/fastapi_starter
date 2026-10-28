@@ -1,6 +1,6 @@
 """Tests for KeycloakClaimExtractor — claim parsing and role mapping.
 
-Module under test: src/fastapi_starter/core/auth/extractors.py
+Module under test: src/fastapi_starter/adapters/keycloak/extractors.py
 Layer: Core logic (no mocks needed — pure transformation from dict to User)
 
 WHY these tests exist: KeycloakClaimExtractor is the Keycloak-specific adapter
@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, call
 
 import pytest
 
-from fastapi_starter.core.auth.extractors import KeycloakClaimExtractor
+from fastapi_starter.adapters.keycloak.extractors import KeycloakClaimExtractor
 from fastapi_starter.core.auth.protocols import ClaimExtractor
 from fastapi_starter.core.auth.schemas import RoleEnum
 from fastapi_starter.core.exceptions import UnauthorizedError
@@ -34,7 +34,7 @@ def logger(monkeypatch) -> MagicMock:
     (cache_logger_on_first_use), so capture_logs cannot see them.
     """
     fake = MagicMock()
-    monkeypatch.setattr("fastapi_starter.core.auth.extractors.logger", fake)
+    monkeypatch.setattr("fastapi_starter.adapters.keycloak.extractors.logger", fake)
     return fake
 
 
@@ -86,10 +86,10 @@ class TestExtractUser:
         assert user.username == sample_claims["sub"]
 
     def test_email_as_username_is_accepted(self, extractor, sample_claims):
-        """[HP] Un realm con "Email as username" deve potersi autenticare.
+        """[HP] A realm with "Email as username" can log in.
 
-        WHY: regressione. User.username aveva pattern ^[a-zA-Z0-9_-]+$,
-        che rifiuta ogni preferred_username in forma di email.
+        WHY: a regression. User.username had the pattern ^[a-zA-Z0-9_-]+$,
+        which refuses every preferred_username in the form of an email.
         """
         sample_claims["preferred_username"] = "mario.rossi@example.com"
 
@@ -100,13 +100,13 @@ class TestExtractUser:
     def test_user_validation_failure_raises_unauthorized_not_500(
         self, extractor, sample_claims
     ):
-        """[SEC] Un claim che non supera la validazione di User è 401, non 500.
+        """[SEC] A claim that fails the validation of User is 401, not 500.
 
-        WHY: User(...) veniva costruito FUORI dal try/except che protegge
-        TokenPayload. Un preferred_username non mappabile usciva come
-        PydanticValidationError nuda: gli exception handler la trasformano
-        in 500, cioè un fallimento di autenticazione riportato come guasto
-        del server. Gli avvisi di sicurezza finivano nel canale sbagliato.
+        WHY: User(...) was built OUTSIDE the try/except that guards
+        TokenPayload. A preferred_username that could not be mapped left as a
+        bare PydanticValidationError: the exception handlers turn it into a
+        500, an authentication failure reported as a fault of the server.
+        The security warnings went to the wrong channel.
         """
         sample_claims["preferred_username"] = "evil\nadmin"
 

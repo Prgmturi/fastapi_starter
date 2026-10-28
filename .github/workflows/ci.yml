@@ -30,7 +30,6 @@ jobs:
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
-          python-version: "3.13"
 
       # --locked: stop if uv.lock is out of date with pyproject.toml.
       # --frozen installed it without comparing the two.
@@ -57,13 +56,16 @@ jobs:
         run: uv run pytest --tb=short --cov --cov-report=term --cov-report="markdown-append:$GITHUB_STEP_SUMMARY"
 
       # The tests must not depend on the machine that runs them: with a .env
-      # and production variables the result must stay the same.
+      # and production variables the result must stay the same. Both hold
+      # settings the app refuses to start with: a __Host- cookie without
+      # Secure, and a variable name from before 0.8.0.
       - name: Tests in a production-like environment
         env:
           APP_ENVIRONMENT: production
           SERVER_TRUSTED_HOSTS: '["api.example.com"]'
+          KEYCLOAK_COOKIE_NAME: rt
         run: |
-          printf 'KEYCLOAK_COOKIE_NAME=__Host-rt\nKEYCLOAK_COOKIE_SECURE=false\n' > .env
+          printf 'AUTH_COOKIE_NAME=__Host-rt\nAUTH_COOKIE_SECURE=false\n' > .env
           uv run pytest -q --tb=short -p no:cacheprovider
 
   integration:
@@ -106,7 +108,6 @@ jobs:
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
-          python-version: "3.13"
 
       - name: Install dependencies
         run: uv sync --locked
@@ -146,7 +147,6 @@ jobs:
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
-          python-version: "3.13"
 
       - name: Install dependencies
         run: uv sync --locked
@@ -191,7 +191,7 @@ jobs:
       - name: Smoke test
         run: |
           docker run --rm fastapi-starter:ci python -c \
-            "from fastapi_starter.main import create_app; app = create_app(); print('routes found:', *(app.url_path_for(name) for name in ('root', 'liveness', 'get_me')))"
+            "from fastapi_starter.main import create_app; app = create_app(); print('routes found:', *(app.url_path_for(name) for name in ('root', 'liveness', 'get_me', 'list_notes')))"
 
       # The app runs as appuser, who must not be able to change its own
       # code: as the owner, a process taken over could rewrite it, and a

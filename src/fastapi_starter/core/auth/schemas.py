@@ -47,20 +47,19 @@ class User(BaseModel):
     id: str = Field(
         min_length=1, max_length=255, description="Unique user ID (from 'sub' claim)"
     )
-    # Il valore arriva da un JWT già verificato crittograficamente: qui non
-    # decidiamo quali username un utente può registrare — quello lo decide
-    # Keycloak — ma cosa può attraversare log e risposte senza fare danni.
-    # Vietiamo solo whitespace e caratteri di controllo (log injection, CRLF
-    # nelle header); tutto il resto passa.
+    # The value comes from a JWT whose signature is already verified: this is
+    # not where we decide which usernames a user may register (Keycloak
+    # decides that), but what may travel through logs and responses without
+    # harm. Only whitespace and control characters are refused (log
+    # injection, CRLF in headers); everything else passes.
     #
-    # Il pattern precedente era ^[a-zA-Z0-9_-]+$ con min_length=3: rifiutava
-    # "mario.rossi@example.com", cioè il preferred_username che Keycloak
-    # emette appena si abilita "Email as username". Ogni login valido
-    # diventava un errore.
+    # The previous pattern was ^[a-zA-Z0-9_-]+$ with min_length=3: it refused
+    # "mario.rossi@example.com", the preferred_username Keycloak issues as
+    # soon as "Email as username" is on. Every valid login became an error.
     #
-    # Nota: l'ancoraggio $ è affidabile perché pydantic v2 usa rust-regex,
-    # dove $ significa fine-stringa stretta. Con regex_engine="python-re"
-    # il $ tollererebbe un \n finale e "evil\n" passerebbe.
+    # Note: the $ anchor holds because pydantic v2 uses rust-regex, where $
+    # means the strict end of the string. With regex_engine="python-re" $
+    # would accept a trailing \n, and "evil\n" would pass.
     username: str = Field(
         min_length=1,
         max_length=255,

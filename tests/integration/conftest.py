@@ -6,6 +6,9 @@ Every test in this folder gets the ``integration`` marker. A plain
 TEST_DATABASE_* describes (settings.py).
 """
 
+import os
+import subprocess
+import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -16,6 +19,7 @@ from fastapi_starter.core.database.dependencies import get_db_manager
 from tests.integration.settings import IntegrationDatabaseSettings
 
 HERE = Path(__file__).parent
+REPOSITORY = HERE.parent.parent
 
 
 # tryfirst: the marker must be there before pytest deselects by -m.
@@ -31,6 +35,36 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 def database_settings() -> IntegrationDatabaseSettings:
     """TEST_DATABASE_*, with a name that ends in _test."""
     return IntegrationDatabaseSettings()
+
+
+@pytest.fixture(scope="session")
+def migrated_database(tmp_path_factory) -> None:
+    """The test database at the last migration, as CI and a deploy leave it.
+
+    Alembic runs in a subprocess, from a folder without .env, with the
+    DATABASE_* that env.py reads set to TEST_DATABASE_*. Locally no command
+    is needed before the tests; in CI the migrations have run already, and
+    this one changes nothing.
+    """
+    database = IntegrationDatabaseSettings()
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "-c", str(REPOSITORY / "alembic.ini")]
+        + ["upgrade", "head"],
+        cwd=tmp_path_factory.mktemp("alembic"),
+        env={
+            **os.environ,
+            "DATABASE_HOST": database.host,
+            "DATABASE_PORT": str(database.port),
+            "DATABASE_NAME": database.name,
+            "DATABASE_USER": database.user,
+            "DATABASE_PASSWORD": database.password.get_secret_value(),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.fail(f"alembic upgrade head failed:\n{result.stderr}")
 
 
 @pytest.fixture

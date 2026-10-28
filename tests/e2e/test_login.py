@@ -1,4 +1,4 @@
-"""A user of the dev realm logs in, calls the API, refreshes and logs out.
+"""A user of the dev realm logs in, uses the API and its notes, refreshes, logs out.
 
 WHY this test exists: the phase 8 goal is that a clean clone plus
 docker compose up gives a working login. It runs against the real stack
@@ -66,9 +66,25 @@ def test_log_in_call_refresh_and_log_out(api):
     assert me.json()["username"] == username
     assert me.json()["roles"] == ["user"]
 
+    # The example feature with the token of a real login: the owner is the
+    # sub that Keycloak signed, and the table is the one of the migrations.
+    # The note is deleted again, so that the stack keeps no trace of the run.
+    bearer = {"Authorization": f"Bearer {access_token}"}
+    note = api.post("/notes", json={"title": "e2e"}, headers=bearer)
+    assert note.status_code == 201, note.text
+    listed = api.get("/notes", headers=bearer)
+    assert note.json()["id"] in [own["id"] for own in listed.json()]
+    deleted = api.delete(f"/notes/{note.json()['id']}", headers=bearer)
+    assert deleted.status_code == 204, deleted.text
+
     refreshed = api.post("/auth/refresh", headers={"Cookie": refresh_cookie(tokens)})
     assert refreshed.status_code == 200, refreshed.text
     assert refreshed.json()["access_token"] != access_token
 
     logout = api.post("/auth/logout", headers={"Cookie": refresh_cookie(refreshed)})
     assert logout.status_code == 200, logout.text
+
+    # The API answers 200 even when Keycloak refuses the logout: only a
+    # refresh with the same token shows that Keycloak ended the session
+    after = api.post("/auth/refresh", headers={"Cookie": refresh_cookie(refreshed)})
+    assert after.status_code == 401, after.text

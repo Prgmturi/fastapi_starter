@@ -3,8 +3,9 @@ Root conftest — global fixtures available to all tests.
 
 Fixture hierarchy:
     tests/conftest.py           ← YOU ARE HERE (isolation, settings, app, client, users)
-    tests/core/auth/conftest.py ← auth-specific (claims, tokens, mock decoders)
+    tests/core/auth/conftest.py ← auth (mock ports, AuthService)
     tests/core/database/conftest.py ← db-specific (mock session, mock manager)
+    tests/adapters/keycloak/conftest.py ← Keycloak adapters (claims, mock key provider)
     tests/features/conftest.py  ← feature-level (dependency overrides)
     tests/features/auth/conftest.py ← auth endpoints (mock oauth provider)
 """
@@ -36,6 +37,18 @@ SETTINGS_CLASSES: tuple[type[BaseSettings], ...] = (
 )
 
 
+def variable_name(cls: type[BaseSettings], field: str) -> str:
+    """The variable pydantic-settings reads for a field.
+
+    The prefix plus the field name, or the alias when the field has one:
+    AuthCookieSettings reads the names before 0.8.0 that way, to refuse them.
+    """
+    alias = cls.model_fields[field].validation_alias
+    if isinstance(alias, str):
+        return alias.upper()
+    return f"{cls.model_config.get('env_prefix', '')}{field}".upper()
+
+
 @pytest.fixture(autouse=True)
 def hermetic_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Make every test independent of the machine that runs it.
@@ -52,8 +65,7 @@ def hermetic_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         monkeypatch.setitem(cls.model_config, "env_file", None)
 
         # Remove exactly the variables this class would read.
-        prefix = cls.model_config.get("env_prefix", "")
-        names = {f"{prefix}{field}".upper() for field in cls.model_fields}
+        names = {variable_name(cls, field) for field in cls.model_fields}
         for variable in list(os.environ):
             if variable.upper() in names:
                 monkeypatch.delenv(variable)

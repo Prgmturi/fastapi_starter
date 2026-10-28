@@ -28,8 +28,8 @@ updates:
     commit-message:
       prefix: fix(deps)
     ignore:
-      # Python 3.14 would run in the image while CI tests on 3.13 (the
-      # python-version of setup-uv): only new digests of 3.13
+      # Python 3.14 would run in the image while development and CI use
+      # 3.13, the version in .python-version: only new digests of 3.13
       - dependency-name: python
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
       # uv moves in the Dockerfile and in the workflows at once, by hand

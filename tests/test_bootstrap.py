@@ -1,9 +1,9 @@
-"""Tests for setup.py — composition root service initialization.
+"""Tests for bootstrap.py — composition root service initialization.
 
-Module under test: src/fastapi_starter/setup.py
+Module under test: src/fastapi_starter/bootstrap.py
 Layer: Application integration (composition root)
 
-WHY these tests exist: setup.py wires all the concrete implementations
+WHY these tests exist: bootstrap.py wires all the concrete implementations
 together. It is the only place where concrete classes appear. We verify
 the wiring and error handling — particularly that partial initialization
 failures properly clean up already-initialized resources.
@@ -23,6 +23,15 @@ from jwt.algorithms import RSAAlgorithm
 from starlette.datastructures import State
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from fastapi_starter.adapters.keycloak.client import KeycloakClient
+from fastapi_starter.bootstrap import (
+    create_keycloak_http_client,
+    init_auth_service,
+    init_database,
+    init_oauth_provider,
+    register_middleware,
+    shutdown_services,
+)
 from fastapi_starter.core.body_limit import BodySizeLimitMiddleware
 from fastapi_starter.core.config import (
     DatabaseSettings,
@@ -33,16 +42,7 @@ from fastapi_starter.core.database import DatabaseManager
 from fastapi_starter.core.error_middleware import UnhandledExceptionMiddleware
 from fastapi_starter.core.logging import LoggingMiddleware
 from fastapi_starter.core.security import SecureHeadersMiddleware
-from fastapi_starter.features.auth.client import KeycloakClient
 from fastapi_starter.main import create_app, lifespan
-from fastapi_starter.setup import (
-    create_keycloak_http_client,
-    init_auth_service,
-    init_database,
-    init_oauth_provider,
-    register_middleware,
-    shutdown_services,
-)
 
 
 @pytest.fixture
@@ -59,7 +59,7 @@ class TestInitDatabase:
     with a half-initialized database connection.
     """
 
-    @patch("fastapi_starter.setup.DatabaseManager")
+    @patch("fastapi_starter.bootstrap.DatabaseManager")
     async def test_creates_manager_and_connects(self, mock_database_manager):
         """[HP] Creates DatabaseManager, calls connect(), stores in state."""
         mock_manager = AsyncMock()
@@ -76,7 +76,7 @@ class TestInitDatabase:
         assert state.db_manager is mock_manager
         assert result is mock_manager
 
-    @patch("fastapi_starter.setup.DatabaseManager")
+    @patch("fastapi_starter.bootstrap.DatabaseManager")
     async def test_health_check_failure_disconnects_and_raises(
         self, mock_database_manager
     ):
@@ -97,7 +97,7 @@ class TestInitDatabase:
 
         mock_manager.disconnect.assert_called_once()
 
-    @patch("fastapi_starter.setup.DatabaseManager")
+    @patch("fastapi_starter.bootstrap.DatabaseManager")
     async def test_logs_the_url_without_the_password(
         self, mock_database_manager, monkeypatch
     ):
@@ -108,7 +108,7 @@ class TestInitDatabase:
         """
         mock_database_manager.return_value = AsyncMock()
         logger = MagicMock()
-        monkeypatch.setattr("fastapi_starter.setup.logger", logger)
+        monkeypatch.setattr("fastapi_starter.bootstrap.logger", logger)
 
         await init_database(State(), DatabaseSettings(password="db-secret-value"))
 
@@ -136,10 +136,10 @@ class TestInitAuthService:
     Pre-fetches JWKS keys. If JWKS fetch fails, app must not start.
     """
 
-    @patch("fastapi_starter.setup.AuthService")
-    @patch("fastapi_starter.setup.KeycloakClaimExtractor")
-    @patch("fastapi_starter.setup.JWKSTokenDecoder")
-    @patch("fastapi_starter.setup.JWKSManager")
+    @patch("fastapi_starter.bootstrap.AuthService")
+    @patch("fastapi_starter.bootstrap.KeycloakClaimExtractor")
+    @patch("fastapi_starter.bootstrap.JWKSTokenDecoder")
+    @patch("fastapi_starter.bootstrap.JWKSManager")
     async def test_creates_service_and_stores_in_state(
         self,
         mock_jwks_manager,
@@ -171,10 +171,10 @@ class TestInitAuthService:
         mock_jwks.refresh_keys.assert_called_once()
         assert state.auth_service is mock_auth_service.return_value
 
-    @patch("fastapi_starter.setup.AuthService")
-    @patch("fastapi_starter.setup.KeycloakClaimExtractor")
-    @patch("fastapi_starter.setup.JWKSTokenDecoder")
-    @patch("fastapi_starter.setup.JWKSManager")
+    @patch("fastapi_starter.bootstrap.AuthService")
+    @patch("fastapi_starter.bootstrap.KeycloakClaimExtractor")
+    @patch("fastapi_starter.bootstrap.JWKSTokenDecoder")
+    @patch("fastapi_starter.bootstrap.JWKSManager")
     async def test_token_policy_from_settings_reaches_decoder(
         self,
         mock_jwks_manager,
@@ -196,10 +196,10 @@ class TestInitAuthService:
         assert kwargs["allowed_clients"] == ["fastapi-backend", "web-frontend"]
         assert kwargs["audience"] == "fastapi-backend"
 
-    @patch("fastapi_starter.setup.AuthService")
-    @patch("fastapi_starter.setup.KeycloakClaimExtractor")
-    @patch("fastapi_starter.setup.JWKSTokenDecoder")
-    @patch("fastapi_starter.setup.JWKSManager")
+    @patch("fastapi_starter.bootstrap.AuthService")
+    @patch("fastapi_starter.bootstrap.KeycloakClaimExtractor")
+    @patch("fastapi_starter.bootstrap.JWKSTokenDecoder")
+    @patch("fastapi_starter.bootstrap.JWKSManager")
     async def test_issuer_is_the_public_url(
         self,
         mock_jwks_manager,
@@ -223,10 +223,10 @@ class TestInitAuthService:
         _, kwargs = mock_decoder.call_args
         assert kwargs["issuer"] == "https://auth.example.com/realms/fastapi-starter"
 
-    @patch("fastapi_starter.setup.AuthService")
-    @patch("fastapi_starter.setup.KeycloakClaimExtractor")
-    @patch("fastapi_starter.setup.JWKSTokenDecoder")
-    @patch("fastapi_starter.setup.JWKSManager")
+    @patch("fastapi_starter.bootstrap.AuthService")
+    @patch("fastapi_starter.bootstrap.KeycloakClaimExtractor")
+    @patch("fastapi_starter.bootstrap.JWKSTokenDecoder")
+    @patch("fastapi_starter.bootstrap.JWKSManager")
     async def test_jwks_refresh_failure_raises_and_leaves_client_open(
         self,
         mock_jwks_manager,
@@ -288,9 +288,9 @@ def realm_jwks() -> dict[str, Any]:
 
 
 class TestServicesReachTheRoutes:
-    """What setup.py stores in app.state is what the routes receive.
+    """What bootstrap.py stores in app.state is what the routes receive.
 
-    WHY: setup.py stores each service in app.state under a name, and a
+    WHY: bootstrap.py stores each service in app.state under a name, and a
     getter (get_db_manager, get_auth_service, get_oauth_provider) reads it
     back by the same name. app.state has no types, and the other tests
     replace the getters: with a misspelled name mypy and every test passed,
@@ -316,7 +316,7 @@ class TestServicesReachTheRoutes:
             return httpx.AsyncClient(transport=transport)
 
         monkeypatch.setattr(
-            "fastapi_starter.setup.DatabaseManager", OfflineDatabaseManager
+            "fastapi_starter.bootstrap.DatabaseManager", OfflineDatabaseManager
         )
         monkeypatch.setattr(
             "fastapi_starter.main.create_keycloak_http_client", keycloak_http_client
@@ -334,7 +334,7 @@ class TestServicesReachTheRoutes:
     async def test_readiness_gets_the_database_and_the_auth_service(
         self, started_client
     ):
-        """[HP] get_db_manager and get_auth_service find what setup.py stored."""
+        """[HP] get_db_manager and get_auth_service find what bootstrap.py stored."""
         response = await started_client.get("/health/ready")
 
         assert response.status_code == 200
@@ -360,6 +360,17 @@ class TestServicesReachTheRoutes:
         assert response.json()["authorization_url"].startswith(
             f"{settings.keycloak.auth_url}?"
         )
+
+    async def test_refresh_gets_the_cookie_settings(self, started_client):
+        """[HP] get_cookie_settings finds the cookie settings in app.state.
+
+        Without a cookie /auth/refresh answers 401, after reading the
+        cookie's name from those settings. A wrong name in the getter gives
+        500 instead.
+        """
+        response = await started_client.post("/auth/refresh")
+
+        assert response.status_code == 401
 
 
 class TestShutdownServices:

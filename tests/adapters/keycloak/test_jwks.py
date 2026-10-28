@@ -1,6 +1,6 @@
 """Tests for JWKSTokenDecoder — JWT decoding and verification.
 
-Module under test: src/fastapi_starter/core/auth/jwks.py
+Module under test: src/fastapi_starter/adapters/keycloak/jwks.py
 Layer: Core logic (mock KeyProvider at protocol boundary)
 
 WHY these tests exist: JWKSTokenDecoder wraps PyJWT and converts all library
@@ -20,7 +20,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt.utils import base64url_encode
 
-from fastapi_starter.core.auth.jwks import JWKSTokenDecoder
+from fastapi_starter.adapters.keycloak.jwks import JWKSTokenDecoder
 from fastapi_starter.core.auth.protocols import TokenDecoder
 from fastapi_starter.core.exceptions import ServiceUnavailableError, UnauthorizedError
 from fastapi_starter.core.protocols import HealthCheckable

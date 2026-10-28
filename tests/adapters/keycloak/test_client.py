@@ -1,6 +1,6 @@
 """Tests for KeycloakClient — HTTP token operations.
 
-Module under test: src/fastapi_starter/features/auth/client.py
+Module under test: src/fastapi_starter/adapters/keycloak/client.py
 Layer: Infrastructure adapter (mock httpx responses)
 
 WHY these tests exist: KeycloakClient makes HTTP calls to Keycloak.
@@ -14,11 +14,11 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 
+from fastapi_starter.adapters.keycloak.client import KeycloakClient
 from fastapi_starter.core.auth.protocols import OAuthProvider
 from fastapi_starter.core.auth.schemas import TokenResponse
 from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.core.exceptions import ExternalServiceError, UnauthorizedError
-from fastapi_starter.features.auth.client import KeycloakClient
 
 
 @pytest.fixture
@@ -385,6 +385,46 @@ class TestClientSecretSent:
             await call(KeycloakClient(keycloak_settings, http))
 
         assert forms[0]["client_secret"] == ["test-secret"]
+
+
+# The URL of KeycloakSettings each call posts to
+CALL_URLS = {
+    "exchange_code": "token_url",
+    "refresh_token": "token_url",
+    "logout": "logout_url",
+}
+
+
+class TestKeycloakUrls:
+    """Where each call to Keycloak goes.
+
+    WHY: the router logs a failed logout and answers 200 anyway. With a
+    wrong logout URL every test passed, the end-to-end one too, and
+    Keycloak never ended the session. Every URL comes from KeycloakSettings,
+    which tests their form, the logout one included.
+    """
+
+    @pytest.mark.parametrize("name", list(KEYCLOAK_CALLS))
+    async def test_call_posts_to_its_settings_url(self, keycloak_settings, name):
+        """[HP] Each call posts to the URL KeycloakSettings gives for it."""
+        urls = []
+
+        def keycloak(request: httpx.Request) -> httpx.Response:
+            urls.append(str(request.url))
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "at",
+                    "refresh_token": "rt",
+                    "token_type": "Bearer",
+                    "expires_in": 300,
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(keycloak)) as http:
+            await KEYCLOAK_CALLS[name](KeycloakClient(keycloak_settings, http))
+
+        assert urls == [getattr(keycloak_settings, CALL_URLS[name])]
 
 
 class TestOAuthProviderProtocol:

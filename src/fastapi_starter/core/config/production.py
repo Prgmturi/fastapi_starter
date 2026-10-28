@@ -6,6 +6,7 @@ value.
 """
 
 from fastapi_starter.core.config.app import AppSettings
+from fastapi_starter.core.config.auth_cookie import AuthCookieSettings
 from fastapi_starter.core.config.database import DatabaseSettings
 from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.core.config.server import ServerSettings
@@ -21,6 +22,7 @@ LOCAL_HOSTS = {"localhost", "127.0.0.1"}
 
 def production_problems(
     app: AppSettings,
+    auth_cookie: AuthCookieSettings,
     database: DatabaseSettings,
     keycloak: KeycloakSettings,
     server: ServerSettings,
@@ -31,6 +33,9 @@ def production_problems(
     if app.debug:
         problems.append("APP_DEBUG is true")
 
+    if not auth_cookie.secure:
+        problems.append("AUTH_COOKIE_SECURE is false")
+
     if not keycloak.public_server_url.startswith("https://"):
         problems.append(
             "Keycloak's public address is not https: set KEYCLOAK_PUBLIC_URL "
@@ -38,8 +43,6 @@ def production_problems(
         )
     if keycloak.client_secret.get_secret_value() in EXAMPLE_CLIENT_SECRETS:
         problems.append("KEYCLOAK_CLIENT_SECRET is empty or the example value")
-    if not keycloak.cookie_secure:
-        problems.append("KEYCLOAK_COOKIE_SECURE is false")
     if not keycloak.allowed_redirect_uris:
         problems.append(
             "KEYCLOAK_ALLOWED_REDIRECT_URIS is empty: list the frontend's callback URLs"

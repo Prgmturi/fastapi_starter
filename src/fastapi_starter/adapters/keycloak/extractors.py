@@ -80,12 +80,12 @@ class KeycloakClaimExtractor:
         Raises:
             UnauthorizedError: If claims cannot be parsed as a valid Keycloak payload.
         """
-        # Il try copre l'intera mappatura claims -> User, non solo il primo
-        # model_validate. Anche User(...) valida (username, email, lunghezze)
-        # e prima stava fuori dal try: un token firmato correttamente ma con
-        # claim che non riusciamo a mappare usciva come ValidationError nuda,
-        # cioè 500. Un token che non sappiamo interpretare è un fallimento di
-        # autenticazione (401), mai un guasto del server.
+        # The try covers the whole mapping from claims to User, not only the
+        # first model_validate. User(...) validates too (username, email,
+        # lengths), and it used to sit outside the try: a correctly signed
+        # token with claims we cannot map left as a bare ValidationError,
+        # that is a 500. A token we cannot read is an authentication failure
+        # (401), never a fault of the server.
         try:
             payload = TokenPayload.model_validate(claims)
             roles = self._collect_roles(payload)

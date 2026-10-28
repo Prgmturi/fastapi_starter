@@ -5,8 +5,8 @@ Layer: Deployment tooling (Alembic in a subprocess, no database)
 
 WHY these tests exist: env.py runs only when someone runs Alembic, so no
 other test executes it. Two of its rules matter in production: a migration
-needs the database settings and nothing else, and autogenerate without
-models stops before it writes a migration that drops every table.
+needs the database settings and nothing else, and autogenerate sees the
+models of every feature.
 """
 
 import os
@@ -50,16 +50,19 @@ class TestMigrationSettings:
 
         assert result.returncode == 0, result.stderr
         assert "alembic_version" in result.stdout
+        assert "CREATE TABLE notes" in result.stdout  # the first migration
 
 
-class TestAutogenerateGuard:
-    def test_without_models_stops_before_connecting(self, tmp_path):
-        """[EC] No model imported -> autogenerate stops, no migration written.
+class TestAutogenerateSeesTheModels:
+    def test_the_models_of_the_features_reach_it(self, tmp_path):
+        """[HP] env.py finds the models of the features: the guard lets it go on.
 
-        WHY: with an empty Base.metadata Alembic sees "the database has
-        every table, the code none" and writes a drop_table for each. The
-        port refuses connections: an error from it would mean env.py tried
-        to connect before stopping.
+        WHY: env.py imports every module called models under features. Had it
+        found none, the guard would stop autogenerate ("Base.metadata has no
+        table"). With the notes model found, autogenerate goes on and fails
+        only when it connects to port 1, which refuses connections. No
+        migration is written either way. The guard itself:
+        tests/core/database/test_migrations.py.
         """
         before = sorted(VERSIONS.iterdir())
 
@@ -74,7 +77,6 @@ class TestAutogenerateGuard:
         )
 
         assert result.returncode != 0
-        assert "Base.metadata" in result.stderr
-        assert "drop_table" in result.stderr
-        assert "Connect" not in result.stderr
+        assert "Base.metadata" not in result.stderr
+        assert "Connect call failed" in result.stderr
         assert sorted(VERSIONS.iterdir()) == before

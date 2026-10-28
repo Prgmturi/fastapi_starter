@@ -12,7 +12,7 @@ A backend template built with FastAPI to learn and apply real architectural patt
 | Layer | What it does |
 |---|---|
 | **Auth** | Full OAuth2 + PKCE flow via Keycloak. JWT validation through JWKS with key rotation. Refresh tokens in HttpOnly cookies. |
-| **Architecture** | Hexagonal (Ports & Adapters). Core logic talks only to protocols — swap Keycloak for Auth0 without touching `AuthService`. |
+| **Architecture** | Hexagonal (Ports & Adapters). Core logic talks only to protocols; the Keycloak adapters live in `adapters/keycloak/`, and `AuthService` never sees them. |
 | **Database** | Async PostgreSQL with SQLAlchemy 2.0. Connection pooling, session lifecycle, base repository pattern. |
 | **Config** | Pydantic Settings, layered by domain (`AppSettings`, `DatabaseSettings`, etc.), loaded from `.env`. |
 | **Logging** | structlog. One format for every line, uvicorn's and SQLAlchemy's too: JSON in production with service metadata, colorized in development. Request IDs on every log line. |
@@ -21,19 +21,24 @@ A backend template built with FastAPI to learn and apply real architectural patt
 
 ## Architecture
 
-The project is split into two layers that don't bleed into each other:
+The project is split into three parts that don't bleed into each other:
 
 ```
-core/       ← infrastructure: auth, database, config, logging, errors
+core/       ← ports (Protocol classes), auth logic, database, config, logging, errors
+adapters/   ← the code that talks to an external service, one folder each: keycloak/
 features/   ← business logic: your endpoints go here
 ```
 
-`core/` defines behavior through `Protocol` classes (ports). Concrete implementations (adapters) live alongside them but are only wired together in one place — `setup.py`. This means `AuthService` has no idea what PyJWT is, `JWKSManager` has no idea what SQLAlchemy is, and adding a feature doesn't require touching infrastructure code.
+`core/` defines behavior through `Protocol` classes (ports). The adapters implement them, and one module builds them and wires each to its port: `bootstrap.py`. A feature never imports an adapter: it asks for the port, as the auth router asks for `OAuthProvider`. This means `AuthService` has no idea what PyJWT is, `JWKSManager` has no idea what SQLAlchemy is, and adding a feature doesn't require touching infrastructure code.
+
+Another identity provider means another folder next to `adapters/keycloak/`, its settings in `core/config/` and its wiring in `bootstrap.py`. Two places still name Keycloak outside the adapters: the auth router reads the allowed redirect URIs from `KeycloakSettings`, and the production checks in `core/config/production.py` name the `KEYCLOAK_*` variables. The database is not an adapter: features work with SQLAlchemy sessions (`DbSession`) directly, so SQLAlchemy is part of `core/`.
+
+Why the project is built this way, one decision at a time: [docs/adr/](docs/adr/README.md).
 
 CI checks these rules on every push and pull request, so breaking one fails the build:
 
-- `uv run lint-imports` checks the import contracts in `pyproject.toml` (`[tool.importlinter]`). The layers are the entry points (`main`, `serve`, `healthcheck`) → `setup`, `exception_handlers` → `features` → `core`, and a module never imports from a layer above its own. Protocols import no adapter, `AuthService` imports neither PyJWT nor httpx, `core/auth/` never touches the database, and routers don't import httpx. A broken contract prints what to do instead.
-- mypy checks that each adapter still matches its port: `setup.py` stores every adapter in `app.state` through a variable typed as the port.
+- `uv run lint-imports` checks the import contracts in `pyproject.toml` (`[tool.importlinter]`). The layers are the entry points (`main`, `serve`, `healthcheck`) → `bootstrap`, `exception_handlers` → `features` and `adapters`, which never import each other → `core`, and a module never imports from a layer above its own. Protocols import no adapter, `AuthService` imports neither PyJWT nor httpx, `core/auth/` and the Keycloak adapters never touch the database, routers don't import httpx, and the health probe loads neither the app nor FastAPI, SQLAlchemy or httpx. A broken contract prints what to do instead.
+- mypy checks that each adapter still matches its port: `bootstrap.py` stores every adapter in `app.state` through a variable typed as the port.
 - ruff rejects imports inside functions (`PLC0415`).
 
 ```
@@ -41,10 +46,12 @@ src/fastapi_starter/
 ├── main.py                  # App factory + lifespan
 ├── serve.py                 # The image's command: uvicorn with the SERVER_* settings
 ├── healthcheck.py           # The image's health probe
-├── setup.py                 # Composition root — the only place that knows everything
+├── bootstrap.py             # Composition root — the only place that knows everything
 ├── exception_handlers.py    # Exceptions → RFC 9457 error responses
+├── adapters/
+│   └── keycloak/            # Login and tokens, signing keys, token checks, claims → User
 ├── core/
-│   ├── auth/                # JWT validation, JWKS, Keycloak claim extraction
+│   ├── auth/                # Ports, AuthService, route dependencies, the refresh cookie
 │   ├── config/              # Settings by domain, loaded from .env
 │   ├── database/            # Async engine, session factory, base repository
 │   ├── logging/             # structlog config + request logging middleware
@@ -56,7 +63,8 @@ src/fastapi_starter/
 │   └── security.py          # Security headers middleware
 └── features/
     ├── auth/                # Login, token exchange, refresh, logout, /me
-    └── health/              # /health/live and /health/ready
+    ├── health/              # /health/live and /health/ready
+    └── notes/               # The example to copy: api/, domain/ (pure Python), persistence/
 ```
 
 `main.py`, `serve.py` and `healthcheck.py` are the entry points: something outside the code starts them, and no module imports them (the layers contract above forbids it). That is why a search for their callers finds only the tests.
@@ -71,7 +79,7 @@ The `migrate` service starts the same image with another command, `alembic upgra
 
 ## Getting started
 
-**Prerequisites:** Docker. To work on the code, also Python 3.13 and [uv](https://docs.astral.sh/uv/) 0.13 or later (an older uv stops with an error in this project: run `uv self update`).
+**Prerequisites:** Docker. To work on the code, also [uv](https://docs.astral.sh/uv/) 0.13 or later (an older uv stops with an error in this project: run `uv self update`). uv installs the Python of `.python-version`, 3.13, when the machine does not have it.
 
 ```bash
 git clone https://github.com/Prgmturi/fastapi_starter.git
@@ -89,7 +97,7 @@ That starts the whole stack of `compose.yaml`, with development values and no `.
 | `keycloak` | http://localhost:8080, console user `admin`, password `admin` | Keycloak, in development mode |
 | `keycloak-db` | | Keycloak's Postgres |
 
-`uv run pytest -m e2e` logs the test user in through Keycloak and calls the API with the token, as a frontend would (CI does it on every push). The ports come from `SERVER_PORT`, `KEYCLOAK_PORT` and `DATABASE_PORT`, exported or in `.env`.
+`uv run pytest -m e2e` logs the test user in through Keycloak and calls the API with the token, as a frontend would (CI does it on every push). The stack takes its ports from `SERVER_PORT`, `KEYCLOAK_PORT` and `DATABASE_PORT`, exported or in `.env`; the test calls the API at `E2E_API_URL`, `http://localhost:8000` by default. With the stack on another port, export it too (`E2E_API_URL=http://localhost:18000`), or the test calls whatever answers on 8000.
 
 ### Keycloak
 
@@ -132,43 +140,59 @@ JWT validation uses `JWKSManager`, which caches Keycloak's public keys (`KEYCLOA
 
 `/auth/token` and `/auth/refresh` answer with `Cache-Control: no-store`, so no browser or proxy keeps the access token. `/auth/refresh` and `/auth/logout` act on the cookie, which the browser sends by itself: a request whose `Origin` is not in `SERVER_CORS_ORIGINS` gets 403 before Keycloak is called. List your frontend there even when a proxy serves it on the same origin as the API. A request without `Origin`, such as one from curl or a mobile app, passes.
 
+The refresh token travels only in its HttpOnly cookie, set by `AUTH_COOKIE_*`: by default `__Host-rt`, Secure, `SameSite=lax` and `Path=/`. The `__Host-` prefix makes the browser accept the cookie only with Secure and `Path=/`, so the app refuses to start with a `__Host-` name that breaks either rule. Over plain http in development use another name and `AUTH_COOKIE_SECURE=false`, as `.env.example` does. Before 0.8.0 these settings were `KEYCLOAK_COOKIE_*`: the app refuses to start while one of those names is set, and names the new one.
+
 Set `KEYCLOAK_ALLOWED_REDIRECT_URIS` to the frontend's callback URLs (a JSON list). `/auth/login` and `/auth/token` then refuse any other `redirect_uri` with 422: the authorization code goes to that address, and a pattern in Keycloak's *Valid redirect URIs* such as `http://localhost:*` lets any port through. The comparison is exact, so `http://localhost:3000/callback/` is a different URI. Unset, only Keycloak checks.
 
 The API accepts only access tokens (`typ: Bearer`) issued to `KEYCLOAK_CLIENT_ID` or to a client listed in `KEYCLOAK_ALLOWED_CLIENTS` (`azp`). ID tokens, refresh tokens and the tokens of other clients in the realm get 401, even though Keycloak signs them with the same keys. Up to 30 seconds of clock difference with Keycloak are tolerated.
 
+A frontend that uses these routes, from the PKCE values to the cookie and the refresh after a 401: [docs/frontend.md](docs/frontend.md).
+
 ## Adding a feature
 
-```bash
-mkdir -p src/fastapi_starter/features/products
-touch src/fastapi_starter/features/products/{__init__,router,schemas}.py
-```
+`features/notes/` is the example to copy: the notes of each user, at `/notes`. It has three layers, and each imports only the ones below it:
 
-In `router.py`:
+| Layer | What it holds | What it may import |
+|---|---|---|
+| `api/` | the routes (`router.py`), the service of each request (`dependencies.py`), what the client sends (`schemas/request/`) and what the API returns (`schemas/response/`) | the two layers below, FastAPI, `core` |
+| `persistence/` | the table (`models.py`) and the repository that implements the port of the domain (`repository.py`) | `domain/`, SQLAlchemy, `core` |
+| `domain/` | the business rules in plain Python: the entity (`note.py`), the port (`protocols.py`), the service (`service.py`) | the standard library and `core.exceptions` |
 
-```python
-from fastapi import APIRouter
-from fastapi_starter.core.auth.dependencies import CurrentUser, AdminUser
-from fastapi_starter.core.database.dependencies import DbSession
+Two import contracts in `pyproject.toml` check it on every push: the arrows between the layers, and a domain free of FastAPI, Starlette, pydantic, SQLAlchemy and httpx. That is why the rules in `domain/service.py` are tested with a repository kept in memory (`tests/features/notes/fakes.py`), with no HTTP and no database.
 
-router = APIRouter(prefix="/products", tags=["Products"])
+To add a feature, `tasks` for example:
 
-@router.get("/")
-async def list_products(user: CurrentUser, db: DbSession):
-    ...
-```
+1. Copy the example and its tests:
 
-Register in `main.py` inside `create_app()`, alongside the existing routers:
+   ```bash
+   cp -r src/fastapi_starter/features/notes src/fastapi_starter/features/tasks
+   cp -r tests/features/notes tests/features/tasks
+   cp tests/integration/test_notes.py tests/integration/test_tasks.py
+   ```
 
-```python
-from fastapi_starter.features.products.router import router as products_router
+   Then rename `notes` and `note` inside the copies, in the names of the files too: the three `note.py` become `task.py`.
+2. Register the router in `create_app()` of `main.py`: import `tasks_router` from `fastapi_starter.features.tasks.api.router`, and add `app.include_router(tasks_router)` after the others.
+3. Add `"fastapi_starter.features.tasks"` to the `containers` of the contract "Inside a feature" in `pyproject.toml`.
+4. Write the migration. `alembic/env.py` imports every module called `models` under `features/`, so it finds the new table by itself:
 
-# inside create_app():
-app.include_router(health_router)
-app.include_router(auth_router)
-app.include_router(products_router)  # add yours here
-```
+   ```bash
+   uv run alembic revision --autogenerate -m "create tasks table"
+   uv run alembic upgrade head
+   ```
 
-`CurrentUser`, `AdminUser`, `DbSession` are type aliases — FastAPI resolves the entire dependency chain automatically.
+   Read the file it writes in `alembic/versions/` before you commit it.
+5. Let ruff tidy the copy and the migration, `uv run ruff check --fix` and `uv run ruff format`: the new names change the order of some imports, and Alembic writes the migration in its own style. Then run the checks of CI: `uv run pytest`, `uv run pytest -m integration`, `uv run mypy src/` and `uv run lint-imports`.
+
+What the example does on purpose, and a copy should keep:
+
+- The owner comes from the token (`user.id`), never from the body. The request schemas refuse unknown fields (`extra="forbid"`), so a client that sends `owner_id` gets 422.
+- Every query of the repository filters by owner in the SQL itself, and a note of another user answers 404, like a missing one: no one learns which ids exist.
+- The domain decides the id, a UUID, and the times, so nothing has to be read back from the database after a save.
+- A length limit is a business rule: `TITLE_MAX_LENGTH` lives in `domain/note.py`, and the request schema and the column take it from there.
+
+A feature with no rules of its own can stay flat, as `features/auth/` and `features/health/` are: a `router.py` that takes `DbSession` and a repository on `BaseRepository` (Database access, below), with the table in a `models.py`. Choose the three layers when the feature has rules worth testing without a database.
+
+To drop the example, `git grep -il notes` lists every file that names it. Besides its two folders and `tests/integration/test_notes.py`, they are `main.py`, two contracts in `pyproject.toml` (the one of the domains goes too, if no other feature has a domain), the migration in `alembic/versions/`, the smoke test in `.github/workflows/ci.yml` and `tests/test_smoke.py`, the calls to `/notes` in `tests/e2e/test_login.py`, and a few lines of `tests/test_main.py`, `tests/test_package.py`, `tests/test_alembic.py`, `tests/test_import_contracts.py` and `tests/core/database/test_migrations.py`. A database that already has the table needs a migration that drops it.
 
 ## Protecting endpoints
 
@@ -257,7 +281,7 @@ The tests in `tests/integration/` run on a real Postgres, for what a mock cannot
 docker compose exec db createdb -U appbase appbase_test   # -U: DATABASE_USER
 ```
 
-CI runs them in a job of their own, with its own Postgres. They do not count towards the coverage threshold.
+Before the first test a fixture brings that database to the last migration (`alembic upgrade head`), as CI does, so no command is needed. CI runs them in a job of their own, with its own Postgres. They do not count towards the coverage threshold.
 
 ## Database access
 
@@ -322,7 +346,7 @@ uv run alembic downgrade -1
 
 Migrations read `DATABASE_*` and no other setting, so they run before the new version starts, without the rest of the configuration: in `compose.yaml` the `migrate` service runs `alembic upgrade head` from the app's image, and the API starts only after it succeeds. CI runs every migration up to head, compares the result with the models (`alembic check`: a model changed without its migration fails the build), then down to the base and up again.
 
-Define models by subclassing `Base` from `core/database/base.py`. Import them in `alembic/env.py` before running autogenerate — if you forget, `--autogenerate` aborts with an explanation instead of emitting a migration that drops every table in the database.
+Define models by subclassing `Base` from `core/database/base.py`, in a module called `models` under `features/`, such as `features/<name>/models.py` or, in the example, `features/notes/persistence/models.py`. `alembic/env.py` imports every such module, at any depth (`core/database/migrations.py`), so no model is left out of a migration. With no model at all, `--autogenerate` stops with an explanation instead of emitting a migration that drops every table in the database.
 
 Indexes and constraints get their names from the naming convention in `core/database/base.py`: `pk_<table>`, `uq_<table>_<columns>`, `ix_<table>_<columns>`, `fk_<table>_<columns>_<referred table>`. Postgres would otherwise pick its own names, and the downgrades Alembic writes could not drop them. A `CheckConstraint` needs a `name=`, which becomes `ck_<table>_<name>`; without it the model fails at import. Change the convention only before the first migration: afterwards it renames existing constraints.
 
@@ -356,7 +380,7 @@ The image starts with `python -m fastapi_starter.serve`, which runs uvicorn with
 
 `/docs`, `/redoc`, and `/openapi.json` are only available when `APP_ENVIRONMENT=development`.
 
-With `APP_ENVIRONMENT=production` the app refuses to start while a development or example value is left: `APP_DEBUG=true`, Keycloak's public address on http, an empty or example `KEYCLOAK_CLIENT_SECRET`, `KEYCLOAK_COOKIE_SECURE=false`, no `KEYCLOAK_ALLOWED_REDIRECT_URIS`, the default or example `DATABASE_PASSWORD`, `DATABASE_ECHO=true` (it logs every query with its values), `*` in `SERVER_CORS_ORIGINS`, `SERVER_TRUSTED_HOSTS` or `SERVER_FORWARDED_ALLOW_IPS`, or only localhost in `SERVER_TRUSTED_HOSTS`. The error lists every variable to change at once, without their values. The checks are in `core/config/production.py`.
+With `APP_ENVIRONMENT=production` the app refuses to start while a development or example value is left: `APP_DEBUG=true`, Keycloak's public address on http, an empty or example `KEYCLOAK_CLIENT_SECRET`, `AUTH_COOKIE_SECURE=false`, no `KEYCLOAK_ALLOWED_REDIRECT_URIS`, the default or example `DATABASE_PASSWORD`, `DATABASE_ECHO=true` (it logs every query with its values), `*` in `SERVER_CORS_ORIGINS`, `SERVER_TRUSTED_HOSTS` or `SERVER_FORWARDED_ALLOW_IPS`, or only localhost in `SERVER_TRUSTED_HOSTS`. The error lists every variable to change at once, without their values. The checks are in `core/config/production.py`.
 
 In every environment the pool settings have bounds, because SQLAlchemy reads some values in a surprising way: `DATABASE_POOL_SIZE` at least 1 (0 means no limit), `DATABASE_POOL_MAX_OVERFLOW` at least 0 (-1 means no limit), `DATABASE_POOL_TIMEOUT`, `DATABASE_POOL_RECYCLE` and the two database timeouts above 0 (`DATABASE_POOL_RECYCLE=0` opens a new connection for every query). A value out of range stops the startup with an error that names the variable.
 
