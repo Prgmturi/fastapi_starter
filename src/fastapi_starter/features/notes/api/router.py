@@ -6,11 +6,11 @@ from fastapi import APIRouter, Query, Request, Response, status
 from fastapi_starter.core.auth import CurrentUser
 from fastapi_starter.core.database import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from fastapi_starter.features.notes.api.dependencies import NoteServiceDep
-from fastapi_starter.features.notes.api.schemas.request.note import (
-    NoteCreate,
-    NoteUpdate,
+from fastapi_starter.features.notes.api.schemas.request import (
+    CreateNoteRequest,
+    UpdateNoteRequest,
 )
-from fastapi_starter.features.notes.api.schemas.response.note import NoteResponse
+from fastapi_starter.features.notes.api.schemas.response import NoteResponse
 
 notes_router = APIRouter(prefix="/notes", tags=["Notes"])
 
@@ -29,7 +29,7 @@ async def list_notes(
 
 @notes_router.post("", status_code=status.HTTP_201_CREATED, summary="Create a note")
 async def create_note(
-    payload: NoteCreate,
+    payload: CreateNoteRequest,
     user: CurrentUser,
     service: NoteServiceDep,
     request: Request,
@@ -53,7 +53,10 @@ async def get_note(
 
 @notes_router.patch("/{note_id}", summary="Change a note")
 async def update_note(
-    note_id: UUID, payload: NoteUpdate, user: CurrentUser, service: NoteServiceDep
+    note_id: UUID,
+    payload: UpdateNoteRequest,
+    user: CurrentUser,
+    service: NoteServiceDep,
 ) -> NoteResponse:
     """Change the title, the body or both."""
     note = await service.update_note(user.id, note_id, payload.title, payload.body)

@@ -1,3 +1,5 @@
+"""The bodies the API returns."""
+
 from datetime import datetime
 from uuid import UUID
 

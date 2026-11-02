@@ -47,7 +47,7 @@ To see a whole login work, install [uv](https://docs.astral.sh/uv/) and run `uv 
 HTTP request: POST /notes
    │
    ▼
-features/notes/api/router.py        reads the request (schemas/request), answers (schemas/response)
+features/notes/api/router.py        reads the request (schemas/request.py), answers (schemas/response.py)
    │   before the route runs, CurrentUser checks the token through a port:
    │   adapters/keycloak/ verifies it with the keys of Keycloak
    ▼
@@ -88,7 +88,7 @@ Copy `features/notes`. It has three layers, and each one imports only the layers
 
 | Layer | What it holds |
 |---|---|
-| `api/` | The routes, and what the client sends (`schemas/request/`) and gets back (`schemas/response/`) |
+| `api/` | The routes, and what the client sends (`schemas/request.py`) and gets back (`schemas/response.py`) |
 | `persistence/` | The table, and the repository that does the SQL |
 | `domain/` | The rules, in plain Python, and the port the repository implements |
 
@@ -102,7 +102,7 @@ To add `tasks`:
    cp tests/integration/test_notes.py tests/integration/test_tasks.py
    ```
 
-   Then rename `notes` and `note` inside the copies, in the names of the files too: the three `note.py` become `task.py`.
+   Then rename `notes` and `note` inside the copies, capitals too (`CreateNoteRequest` becomes `CreateTaskRequest`), and `domain/note.py` becomes `domain/task.py`.
 2. **Register the router** in `create_app()` of `main.py`: import `tasks_router` from `fastapi_starter.features.tasks.api.router`, and add `app.include_router(tasks_router)` after the others.
 3. **Add the feature to its contract:** put `"fastapi_starter.features.tasks"` in the `containers` of the contract "Inside a feature", in `pyproject.toml`.
 4. **Write the migration.** Alembic finds the new table by itself:
