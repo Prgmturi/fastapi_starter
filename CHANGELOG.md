@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/Prgmturi/fastapi_starter/compare/v0.8.1...v0.8.2) (2026-11-02)
+
+
+### Bug Fixes
+
+* **deps:** bump python in /docker in the base-image group ([#71](https://github.com/Prgmturi/fastapi_starter/issues/71)) ([d6a72e6](https://github.com/Prgmturi/fastapi_starter/commit/d6a72e6582b76a5803e331813d080c3461c3d562))
+
 ## [0.8.1](https://github.com/Prgmturi/fastapi_starter/compare/v0.8.0...v0.8.1) (2026-10-28)
 
 
