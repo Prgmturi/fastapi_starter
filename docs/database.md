@@ -61,7 +61,8 @@ from fastapi_starter.core.database import DatabaseProvider, get_db_manager
 
 
 async def rebuild_catalog(db: DatabaseProvider) -> None:
-    async with db.session_factory.begin() as session:  # commit at the end, rollback on error
+    # Commit at the end, rollback on error
+    async with db.session_factory.begin() as session:
         ...
 
 
