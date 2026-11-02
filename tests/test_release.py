@@ -121,3 +121,23 @@ class TestVersionBump:
 
         assert image_lines
         assert [line for line in image_lines if not line.endswith(VERSION_MARKER)] == []
+
+
+class TestWhatMakesARelease:
+    def test_only_a_change_to_what_runs_makes_a_release(self):
+        """[HP] feat, fix, perf, deps and revert make a release; docs does not.
+
+        WHY: the python strategy of release-please lists docs in the
+        changelog, and it makes a release whenever the changelog has a line:
+        #78, the README alone, opened 0.8.3 for an image with the same code
+        (2 November 2026). A hidden type waits for the next release, with no
+        line in the changelog. A breaking change makes a release whatever
+        its type.
+        """
+        config = json.loads((ROOT / "release-please-config.json").read_text())
+        sections = config["packages"]["."].get("changelog-sections", [])
+
+        visible = {s["type"] for s in sections if not s.get("hidden", False)}
+        hidden = {s["type"] for s in sections if s.get("hidden", False)}
+        assert visible == {"feat", "fix", "perf", "deps", "revert"}
+        assert hidden == {"docs", "style", "chore", "refactor", "test", "build", "ci"}
