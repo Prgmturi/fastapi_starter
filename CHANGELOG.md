@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.3](https://github.com/Prgmturi/fastapi_starter/compare/v0.8.2...v0.8.3) (2026-11-02)
+
+
+### Bug Fixes
+
+* **deps:** bump keycloak/keycloak ([#70](https://github.com/Prgmturi/fastapi_starter/issues/70)) ([0a16177](https://github.com/Prgmturi/fastapi_starter/commit/0a16177ef36ba9a6780afc689e588c9767ac46ba))
+* **deps:** bump pydantic-settings from 2.14.2 to 2.16.2 ([#76](https://github.com/Prgmturi/fastapi_starter/issues/76)) ([7332481](https://github.com/Prgmturi/fastapi_starter/commit/7332481311ddcacedf7f44f7a6cef8e3ea80b532))
+
 ## [0.8.2](https://github.com/Prgmturi/fastapi_starter/compare/v0.8.1...v0.8.2) (2026-11-02)
 
 
