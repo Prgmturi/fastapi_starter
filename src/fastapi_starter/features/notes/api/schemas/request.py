@@ -1,3 +1,5 @@
+"""The bodies the client sends."""
+
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -8,7 +10,7 @@ from fastapi_starter.features.notes.domain.note import (
 )
 
 
-class NoteCreate(BaseModel):
+class CreateNoteRequest(BaseModel):
     """A new note. The id, the owner and the times are the server's.
 
     A field the API does not know is refused with 422 instead of ignored: a
@@ -21,7 +23,7 @@ class NoteCreate(BaseModel):
     body: str = Field(default="", max_length=BODY_MAX_LENGTH)
 
 
-class NoteUpdate(BaseModel):
+class UpdateNoteRequest(BaseModel):
     """The fields to change; the others stay as they are."""
 
     model_config = ConfigDict(extra="forbid")

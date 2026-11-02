@@ -98,7 +98,7 @@ The `migrate` service starts the same image with another command, `alembic upgra
 
 | Layer | What it holds | What it may import |
 |---|---|---|
-| `api/` | the routes (`router.py`), the service of each request (`dependencies.py`), what the client sends (`schemas/request/`) and what the API returns (`schemas/response/`) | the two layers below, FastAPI, `core` |
+| `api/` | the routes (`router.py`), the service of each request (`dependencies.py`), what the client sends (`schemas/request.py`) and what the API returns (`schemas/response.py`) | the two layers below, FastAPI, `core` |
 | `persistence/` | the table (`models.py`) and the repository that implements the port of the domain (`repository.py`) | `domain/`, SQLAlchemy, `core` |
 | `domain/` | the business rules in plain Python: the entity (`note.py`), the port (`protocols.py`), the service (`service.py`) | the standard library and `core.exceptions` |
 
@@ -110,6 +110,7 @@ What the example does on purpose, and a copy should keep:
 - Every query of the repository filters by owner in the SQL itself. A note of another user answers 404, like a missing one, so no one learns which ids exist.
 - The domain decides the id, a UUID, and the times. Nothing has to be read back from the database after a save.
 - A length limit is a business rule: `TITLE_MAX_LENGTH` lives in `domain/note.py`, and the request schema and the column take it from there.
+- The names of the schemas say the direction: what the client sends ends in `Request` (`CreateNoteRequest`), what it gets back in `Response` (`NoteResponse`). A test in `tests/test_main.py` checks the names of every route.
 
 A feature with no rules of its own can stay flat, as `features/auth/` and `features/health/` are: a `router.py` that takes `DbSession`, and a repository on `BaseRepository` (see [the database guide](database.md)). Choose the three layers when the feature has rules worth testing without a database.
 

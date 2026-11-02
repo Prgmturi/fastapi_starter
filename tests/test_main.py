@@ -21,6 +21,18 @@ from fastapi_starter.core.config import AppSettings, Settings
 from fastapi_starter.main import create_app, lifespan
 
 
+def schema_names(content: dict) -> set[str]:
+    """The names of the schemas that a request body or a response refers to."""
+    names = set()
+    for media in content.values():
+        schema = media.get("schema", {})
+        # A list, such as list[NoteResponse], refers to the schema of its items
+        ref = schema.get("$ref") or schema.get("items", {}).get("$ref")
+        if ref:
+            names.add(ref.rsplit("/", 1)[-1])
+    return names
+
+
 class TestCreateApp:
     def test_returns_fastapi_instance(self, settings):
         app = create_app(settings)
@@ -88,6 +100,29 @@ class TestCreateApp:
         problem = responses["default"]["content"]["application/problem+json"]
         assert set(problem["schema"]["required"]) == {"title", "status", "detail"}
         assert "HTTPValidationError" not in schema["components"]["schemas"]
+
+    def test_openapi_names_say_the_direction(self, settings):
+        """[HP] What a client sends ends in Request, what it gets back in Response.
+
+        WHY: one rule for the names of every feature, the one the example
+        follows (CreateNoteRequest, NoteResponse). They are the names a client
+        generated from /openapi.json gets.
+        """
+        schema = create_app(settings).openapi()
+
+        sent: set[str] = set()
+        returned: set[str] = set()
+        for path in schema["paths"].values():
+            for operation in path.values():
+                body = operation.get("requestBody", {}).get("content", {})
+                sent |= schema_names(body)
+                for status, response in operation["responses"].items():
+                    if status.startswith("2"):
+                        returned |= schema_names(response.get("content", {}))
+        assert sent
+        assert returned
+        assert {name for name in sent if not name.endswith("Request")} == set()
+        assert {name for name in returned if not name.endswith("Response")} == set()
 
     def test_docs_disabled_in_production(self, production_env):
         app = create_app(Settings())
