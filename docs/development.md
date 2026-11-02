@@ -80,6 +80,8 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/). com
 
 Under 1.0, `feat` and `fix` raise the patch number, and a breaking change (`!`) the minor one.
 
+Only a change to what runs makes a release: `feat`, `fix`, `perf`, `deps` and `revert`, and a breaking change of any type. `docs`, `refactor`, `test`, `build`, `ci` and `chore` wait for the next release, with no line in the changelog (`changelog-sections` in `release-please-config.json`).
+
 ## Supply chain
 
 What the project takes from others, and how it is checked:
