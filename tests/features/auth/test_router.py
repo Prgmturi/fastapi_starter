@@ -10,8 +10,10 @@ behaviour, and that the refresh token never leaks into the response body.
 
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
+from fastapi_starter.adapters.keycloak.client import KeycloakClient
 from fastapi_starter.core.config import ServerSettings, Settings
 from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.core.exceptions import (
@@ -355,6 +357,50 @@ COOKIE_ENDPOINTS = ["/auth/refresh", "/auth/logout"]
 
 # One of the default SERVER_CORS_ORIGINS.
 FRONTEND_ORIGIN = "http://localhost:3000"
+
+
+class TestKeycloakUnreachable:
+    """The routes that call Keycloak, while it cannot be reached.
+
+    WHY: /auth/token and /auth/refresh answered 502, an answer the frontend
+    guide does not list (tried on 3 November 2026). A 503 with Retry-After
+    tells the frontend to keep the user logged in and try again. Logout
+    still clears the cookie.
+    """
+
+    @pytest.fixture
+    async def mock_oauth_provider(self, test_keycloak_settings):
+        """Overrides the feature fixture: the real client, Keycloak refusing."""
+
+        def refused(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("All connection attempts failed", request=request)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(refused)) as http:
+            yield KeycloakClient(test_keycloak_settings, http)
+
+    async def test_token_answers_503_with_retry_after(self, oauth_client):
+        """[EC] POST /auth/token -> 503 for auth, Retry-After: 5."""
+        response = await oauth_client.post("/auth/token", json=TOKEN_REQUEST)
+
+        body = assert_problem(response, 503)
+        assert body["service"] == "auth"
+        assert response.headers["retry-after"] == "5"
+
+    async def test_refresh_answers_503_with_retry_after(self, oauth_client_with_cookie):
+        """[EC] POST /auth/refresh -> 503 for auth, Retry-After: 5."""
+        response = await oauth_client_with_cookie.post("/auth/refresh")
+
+        body = assert_problem(response, 503)
+        assert body["service"] == "auth"
+        assert response.headers["retry-after"] == "5"
+
+    async def test_logout_still_clears_the_cookie(self, oauth_client_with_cookie):
+        """[EC] POST /auth/logout -> 200 and the cookie cleared, as before."""
+        response = await oauth_client_with_cookie.post("/auth/logout")
+
+        assert response.status_code == 200
+        set_cookie = response.headers.get("set-cookie", "")
+        assert "max-age=0" in set_cookie.lower()
 
 
 class TestTokensAreNotCached:

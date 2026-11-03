@@ -113,8 +113,11 @@ class TestRefreshKeys:
         """[EC] Network error -> ServiceUnavailableError (503), no httpx leak."""
         certs.down = True
 
-        with pytest.raises(ServiceUnavailableError):
+        with pytest.raises(ServiceUnavailableError) as raised:
             await jwks_manager.refresh_keys()
+
+        # The interval: no fetch happens sooner
+        assert raised.value.headers == {"Retry-After": "30"}
 
 
 class TestGetKey:
@@ -275,8 +278,11 @@ class TestKeycloakDown:
         clock.advance(31)
         certs.down = True
 
-        with pytest.raises(ServiceUnavailableError):
+        with pytest.raises(ServiceUnavailableError) as raised:
             await jwks_manager.get_key("key-2")
+
+        # The interval: a retry sooner would get the same 503
+        assert raised.value.headers == {"Retry-After": "30"}
 
     async def test_no_keys_yet_raises_service_unavailable(self, jwks_manager, certs):
         """[EC] Nothing fetched yet and Keycloak down -> ServiceUnavailableError."""

@@ -13,6 +13,7 @@ from fastapi_starter.core.config.auth_cookie import AuthCookieSettings
 from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.core.exceptions import (
     ExternalServiceError,
+    ServiceUnavailableError,
     UnauthorizedError,
     ValidationError,
 )
@@ -237,8 +238,8 @@ async def logout(
 
     try:
         await oauth_provider.logout(current_refresh_token)
-    except (ExternalServiceError, UnauthorizedError) as exc:
-        # The two errors OAuthProvider promises. Revocation failure must not
+    except (ExternalServiceError, ServiceUnavailableError, UnauthorizedError) as exc:
+        # The three errors OAuthProvider promises. Revocation failure must not
         # prevent cookie clearance: the session is already inaccessible to
         # the client once the cookie is gone.
         logger.warning("logout_revocation_failed", exc_info=exc)

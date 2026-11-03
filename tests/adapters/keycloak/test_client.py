@@ -14,11 +14,16 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 
+from fastapi_starter.adapters.keycloak import client as client_module
 from fastapi_starter.adapters.keycloak.client import KeycloakClient
 from fastapi_starter.core.auth.protocols import OAuthProvider
 from fastapi_starter.core.auth.schemas import TokenResponse
 from fastapi_starter.core.config.keycloak import KeycloakSettings
-from fastapi_starter.core.exceptions import ExternalServiceError, UnauthorizedError
+from fastapi_starter.core.exceptions import (
+    ExternalServiceError,
+    ServiceUnavailableError,
+    UnauthorizedError,
+)
 
 
 @pytest.fixture
@@ -263,8 +268,9 @@ class TestLogout:
     """KeycloakClient.logout() — token revocation.
 
     WHY: 204 is a success, and so is 400: the token was already invalid.
-    Any other answer, like a network error, raises ExternalServiceError
-    (TestErrorContract); the router logs it and clears the cookie anyway.
+    Keycloak out of reach raises ServiceUnavailableError, any other answer
+    ExternalServiceError (TestErrorContract); the router logs either and
+    clears the cookie anyway.
     """
 
     async def test_successful_logout_204(self, keycloak_client, mock_http_client):
@@ -306,6 +312,13 @@ def server_error(request: httpx.Request) -> httpx.Response:
     return httpx.Response(500, text="Internal Server Error")
 
 
+def hangs_up(request: httpx.Request) -> httpx.Response:
+    """Keycloak closes the connection without an answer."""
+    raise httpx.RemoteProtocolError(
+        "Server disconnected without sending a response.", request=request
+    )
+
+
 def web_page(request: httpx.Request) -> httpx.Response:
     """A proxy, or a wrong URL, can answer 200 with a web page."""
     return httpx.Response(200, html="<html>Sign in</html>")
@@ -318,30 +331,76 @@ def json_without_tokens(request: httpx.Request) -> httpx.Response:
 class TestErrorContract:
     """The errors the OAuthProvider port promises, when Keycloak fails.
 
-    WHY: callers catch only the two exceptions the port names:
+    WHY: callers catch only the three exceptions the port names:
     UnauthorizedError when Keycloak rejects the code or the refresh token,
-    ExternalServiceError when it cannot answer properly. The logout route
-    relies on them to clear the cookie whatever happens. Before, logout
-    returned as if the token had been revoked when Keycloak answered 500,
-    and the 502 of /auth/token showed the client httpx's own text, with
-    Keycloak's internal URL.
+    ServiceUnavailableError when it cannot be reached, ExternalServiceError
+    when it answers in an unexpected way. The logout route relies on them
+    to clear the cookie whatever happens. Before, logout returned as if
+    the token had been revoked when Keycloak answered 500, and the 502 of
+    /auth/token showed the client httpx's own text, with Keycloak's
+    internal URL.
 
     The network is an httpx.MockTransport: real requests and responses,
     so raise_for_status() and json() behave as in production.
     """
 
     @pytest.mark.parametrize("call", KEYCLOAK_CALLS.values(), ids=list(KEYCLOAK_CALLS))
-    @pytest.mark.parametrize("network", [unreachable, times_out, server_error])
-    async def test_keycloak_failure_raises_external_service_error(
+    @pytest.mark.parametrize("network", [unreachable, times_out])
+    async def test_unreachable_keycloak_raises_service_unavailable(
         self, keycloak_settings, call, network
     ):
-        """[EC] Network error or 5xx -> ExternalServiceError, nothing else."""
+        """[EC] Refused or silent -> 503 for auth, with Retry-After.
+
+        WHY: it was a 502, which the frontend guide does not list, so the
+        frontend could not tell that the same call works once Keycloak is
+        back (tried on 3 November 2026).
+        """
+        async with httpx.AsyncClient(transport=httpx.MockTransport(network)) as http:
+            with pytest.raises(ServiceUnavailableError) as exc_info:
+                await call(KeycloakClient(keycloak_settings, http))
+
+        assert exc_info.value.details == {"service": "auth"}
+        assert exc_info.value.headers == {"Retry-After": "5"}
+        # The message is the detail the client reads: no library text, no URL
+        assert exc_info.value.message == "Service temporarily unavailable"
+
+    @pytest.mark.parametrize("call", KEYCLOAK_CALLS.values(), ids=list(KEYCLOAK_CALLS))
+    @pytest.mark.parametrize("network", [server_error, hangs_up])
+    async def test_unexpected_answer_raises_external_service_error(
+        self, keycloak_settings, call, network
+    ):
+        """[EC] A 500, or no answer at all -> ExternalServiceError, nothing else."""
         async with httpx.AsyncClient(transport=httpx.MockTransport(network)) as http:
             with pytest.raises(ExternalServiceError) as exc_info:
                 await call(KeycloakClient(keycloak_settings, http))
 
-        # The message is the detail the client reads: no library text, no URL
         assert exc_info.value.message == "Error communicating with Keycloak"
+
+    async def test_log_names_the_type_of_the_error(
+        self, keycloak_settings, monkeypatch
+    ):
+        """[EC] The log line of a silent Keycloak names the error type.
+
+        WHY: the text of a timeout can be empty, and the log said error="".
+        The module logger is replaced: it is cached on first use, so
+        capture_logs cannot see it.
+        """
+        logger = MagicMock()
+        monkeypatch.setattr(client_module, "logger", logger)
+
+        def silent(request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("", request=request)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(silent)) as http:
+            with pytest.raises(ServiceUnavailableError):
+                await KeycloakClient(keycloak_settings, http).refresh_token("rt")
+
+        logger.error.assert_called_once_with(
+            "token_request_failed",
+            operation="token_refresh",
+            error_type="ReadTimeout",
+            error="",
+        )
 
     @pytest.mark.parametrize("call", TOKEN_CALLS.values(), ids=list(TOKEN_CALLS))
     @pytest.mark.parametrize("network", [web_page, json_without_tokens])

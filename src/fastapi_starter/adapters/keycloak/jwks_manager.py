@@ -78,7 +78,7 @@ class JWKSManager:
         """
         async with self._lock:
             if not await self._fetch():
-                raise ServiceUnavailableError("auth")
+                raise self._unavailable()
 
     async def _fetch(self) -> bool:
         """Download the key set once. The caller holds the lock.
@@ -106,6 +106,15 @@ class JWKSManager:
         self._last_fetch_failed = False
         logger.info("jwks_refresh_completed", key_count=len(jwks.keys))
         return True
+
+    def _unavailable(self) -> ServiceUnavailableError:
+        """The 503 of a failed fetch, with the interval as Retry-After.
+
+        No new fetch happens sooner, so an earlier retry gets the same 503.
+        """
+        return ServiceUnavailableError(
+            "auth", retry_after=self._settings.jwks_min_refresh_interval
+        )
 
     def _find_key(self, kid: str) -> PyJWK | None:
         """Search for a key by ID in the cached JWKS."""
@@ -174,7 +183,7 @@ class JWKSManager:
         if self._last_fetch_failed:
             # Keycloak is unreachable: the key may exist and there is no
             # way to tell. 503, so the client retries instead of logging out.
-            raise ServiceUnavailableError("auth")
+            raise self._unavailable()
 
         logger.warning("jwks_key_not_found", kid=kid)
         raise ValueError(f"Key {kid} not found in JWKS")

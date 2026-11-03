@@ -4,10 +4,22 @@ import httpx
 
 from fastapi_starter.core.auth.schemas import TokenResponse
 from fastapi_starter.core.config.keycloak import KeycloakSettings
-from fastapi_starter.core.exceptions import ExternalServiceError, UnauthorizedError
+from fastapi_starter.core.exceptions import (
+    ExternalServiceError,
+    ServiceUnavailableError,
+    UnauthorizedError,
+)
 from fastapi_starter.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Keycloak cannot be reached: refused, unknown host, no answer in time.
+# The same call can succeed once it is back.
+UNREACHABLE = (httpx.NetworkError, httpx.TimeoutException)
+
+# Retry-After of the 503 while Keycloak cannot be reached: a few seconds,
+# so that clients do not retry in a tight loop.
+RETRY_AFTER_SECONDS = 5
 
 
 class KeycloakClient:
@@ -99,8 +111,8 @@ class KeycloakClient:
 
         Raises:
             UnauthorizedError: If code is invalid or expired
-            ExternalServiceError: If Keycloak is unreachable or answers in an
-                unexpected way
+            ServiceUnavailableError: If Keycloak cannot be reached
+            ExternalServiceError: If Keycloak answers in an unexpected way
         """
         data = {
             "grant_type": "authorization_code",
@@ -127,8 +139,8 @@ class KeycloakClient:
 
         Raises:
             UnauthorizedError: If refresh token is invalid or expired
-            ExternalServiceError: If Keycloak is unreachable or answers in an
-                unexpected way
+            ServiceUnavailableError: If Keycloak cannot be reached
+            ExternalServiceError: If Keycloak answers in an unexpected way
         """
         data = {
             "grant_type": "refresh_token",
@@ -147,8 +159,8 @@ class KeycloakClient:
             refresh_token: Refresh token to revoke
 
         Raises:
-            ExternalServiceError: If Keycloak is unreachable or answers with
-                an unexpected status
+            ServiceUnavailableError: If Keycloak cannot be reached
+            ExternalServiceError: If Keycloak answers with an unexpected status
         """
         data = {
             "client_id": self._settings.client_id,
@@ -158,6 +170,13 @@ class KeycloakClient:
 
         try:
             response = await self._client.post(self.logout_url, data=data)
+        except UNREACHABLE as e:
+            logger.error(
+                "logout_request_failed", error_type=type(e).__name__, error=str(e)
+            )
+            raise ServiceUnavailableError(
+                "auth", retry_after=RETRY_AFTER_SECONDS
+            ) from e
         except httpx.HTTPError as e:
             logger.error("logout_request_failed", error=str(e))
             raise ExternalServiceError("Keycloak") from e
@@ -190,8 +209,8 @@ class KeycloakClient:
 
         Raises:
             UnauthorizedError: If request fails with 400/401
-            ExternalServiceError: If Keycloak is unreachable or answers in an
-                unexpected way
+            ServiceUnavailableError: If Keycloak cannot be reached
+            ExternalServiceError: If Keycloak answers in an unexpected way
         """
         try:
             response = await self._client.post(self.token_url, data=data)
@@ -229,6 +248,17 @@ class KeycloakClient:
 
         except (UnauthorizedError, ExternalServiceError):
             raise
+        except UNREACHABLE as e:
+            # The type too: the text of a timeout is often empty
+            logger.error(
+                "token_request_failed",
+                operation=operation,
+                error_type=type(e).__name__,
+                error=str(e),
+            )
+            raise ServiceUnavailableError(
+                "auth", retry_after=RETRY_AFTER_SECONDS
+            ) from e
         except httpx.HTTPError as e:
             # The cause goes to the log only. The message becomes the detail
             # of the 502, and httpx's text names Keycloak's internal URL.
