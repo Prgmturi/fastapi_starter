@@ -292,6 +292,35 @@ class TestKeycloakSettings:
         with pytest.raises(pydantic.ValidationError, match="http:// or https://"):
             KeycloakSettings(public_url="auth.example.com")
 
+    def test_request_timeout_is_10_seconds(self):
+        """[HP] 10 s for every call to Keycloak.
+
+        WHY: it was 30. While Keycloak does not answer, /auth/token and
+        /auth/refresh keep the user waiting that long before the 503.
+        """
+        assert KeycloakSettings().request_timeout == 10
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            # httpx fails every call at once with ConnectTimeout (tried on
+            # 3 November 2026): a 503, and no start, as the keys never come
+            ("request_timeout", 0),
+            ("request_timeout", -1),
+            # The cache is never valid: every lookup tries to refetch it
+            ("jwks_cache_ttl", 0),
+            ("jwks_cache_ttl", -1),
+            # No limit: every token with an invented kid costs a call to
+            # Keycloak, and the 503 says Retry-After: 0
+            ("jwks_min_refresh_interval", 0),
+            ("jwks_min_refresh_interval", -1),
+        ],
+    )
+    def test_timing_setting_out_of_range_refused(self, field, value):
+        """[EC] 0 or less -> refused at startup, naming the setting."""
+        with pytest.raises(pydantic.ValidationError, match=field):
+            KeycloakSettings(**{field: value})
+
     def test_certs_url_construction(self):
         """[HP] certs_url = server_url/realms/{realm}/protocol/openid-connect/certs."""
         settings = KeycloakSettings(

@@ -71,10 +71,12 @@ class KeycloakSettings(BaseSettings):
     )
     jwks_cache_ttl: int = Field(
         default=3600,
+        gt=0,
         description="JWKS cache expiration in seconds",
     )
     jwks_min_refresh_interval: int = Field(
         default=30,
+        gt=0,
         description=(
             "Minimum seconds between two fetches of the signing keys: limits "
             "the calls caused by unknown kids and by retries while Keycloak "
@@ -82,8 +84,13 @@ class KeycloakSettings(BaseSettings):
         ),
     )
     request_timeout: int = Field(
-        default=30,
-        description="Request timeout to fetch fresh keys from Keycloak",
+        default=10,
+        gt=0,
+        description=(
+            "Seconds to wait for Keycloak in every call: keys, tokens and "
+            "logout. httpx applies it to each step: connecting, sending, "
+            "reading the answer."
+        ),
     )
 
     @field_validator("public_url")
