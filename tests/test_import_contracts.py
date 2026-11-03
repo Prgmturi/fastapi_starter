@@ -65,6 +65,42 @@ def test_every_named_module_exists(contract, name):
     assert matching_modules(name), f'"{contract}" names {name}, which matches no module'
 
 
+# The layers of the contracts that repeat inside packages, such as "Inside a
+# feature": (contract, layer without its brackets, the packages that hold it)
+CONTAINED = [
+    (
+        contract["name"],
+        name.strip().strip("()"),
+        [
+            module
+            for pattern in contract["containers"]
+            for module in matching_modules(pattern)
+        ],
+    )
+    for contract in CONTRACTS
+    if "containers" in contract
+    for layer in contract["layers"]
+    for name in re.split(r"[|:]", layer)
+]
+
+
+@pytest.mark.parametrize(
+    ("contract", "layer", "containers"),
+    CONTAINED,
+    ids=[f"{contract} / {layer}" for contract, layer, _ in CONTAINED],
+)
+def test_every_layer_exists_in_a_container(contract, layer, containers):
+    """[EC] Each layer is a package of at least one container.
+
+    WHY: a layer in brackets may be missing from a container, so import-linter
+    says nothing about a misspelt one, "(persistance)", and checks one layer
+    less. Without a feature that has the layer, the contract checks nothing.
+    """
+    assert any(f"{container}.{layer}" in MODULES for container in containers), (
+        f'"{contract}" has the layer {layer}, which no container holds'
+    )
+
+
 def test_patterns_are_read_as_import_linter_does():
     """[HP] * stands for one part of a name, ** for one or more.
 

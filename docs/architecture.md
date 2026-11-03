@@ -121,7 +121,7 @@ The README shows how to copy the example into a feature of your own.
 `git grep -il notes` lists every file that names it. Besides its two folders and `tests/integration/test_notes.py`, they are:
 
 - `main.py`, which includes its router;
-- two contracts in `pyproject.toml`: "Inside a feature", and the one of the domains, if no other feature has a domain;
+- two contracts in `pyproject.toml`, if no other feature has the three layers: "Inside a feature", and the one of the domains (`tests/test_import_contracts.py` says which);
 - the migration in `alembic/versions/`;
 - the smoke test in `.github/workflows/ci.yml` and `tests/test_smoke.py`;
 - the calls to `/notes` in `tests/e2e/test_login.py`;

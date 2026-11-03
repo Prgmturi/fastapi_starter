@@ -201,9 +201,11 @@ tests/test_package.py checks the same list in a running process."""
 [[tool.importlinter.contracts]]
 name = "Inside a feature: api -> persistence -> domain"
 type = "layers"
-# A new feature with these three layers goes in this list
-containers = ["fastapi_starter.features.notes"]
-layers = ["api", "persistence", "domain"]
+# Every feature, those to come included. A layer in brackets may be missing:
+# features/auth has none of the three, so there is nothing to check in it.
+# tests/test_import_contracts.py checks that each layer exists in a feature.
+containers = ["fastapi_starter.features.*"]
+layers = ["(api)", "(persistence)", "(domain)"]
 broken_contract_guidance = """
 A layer of the feature imports a layer above its own. api may use the two
 below, persistence the domain; the domain uses neither: persistence
