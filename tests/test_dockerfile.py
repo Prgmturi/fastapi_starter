@@ -71,6 +71,20 @@ class TestRuntimeStage:
         assert [step for step in self.runtime() if "src" in step] == []
         assert [step for step in steps if "PYTHONPATH" in step] == []
 
+    def test_runs_as_production_by_default(self):
+        """[SEC] Without APP_ENVIRONMENT the image runs as production.
+
+        WHY: the code default is development, which serves /docs and checks
+        no setting, and the image set nothing: started with the variable
+        forgotten, it ran so. As production it refuses to start and lists
+        what to set. compose.yaml asks for development.
+        """
+        assert any(
+            re.search(r"(^|\s)APP_ENVIRONMENT=production(\s|$)", step)
+            for step in self.runtime()
+            if step.startswith("ENV ")
+        )
+
     def test_starts_through_serve(self):
         """[HP] The image starts python -m fastapi_starter.serve.
 

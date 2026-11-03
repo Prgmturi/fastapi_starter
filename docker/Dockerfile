@@ -53,9 +53,13 @@ WORKDIR /app
 # PYTHONDONTWRITEBYTECODE=1: no .pyc written at run time; the builder
 #   compiled them, and the app cannot write here anyway.
 # PATH: python and alembic of the virtual environment.
+# APP_ENVIRONMENT=production: started without settings, the app refuses to
+#   start and lists what to set, instead of running as development with
+#   /docs open. compose.yaml asks for development.
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/app/.venv/bin:$PATH"
+    PATH="/app/.venv/bin:$PATH" \
+    APP_ENVIRONMENT=production
 
 # The user the app runs as owns nothing in the image. The virtual
 # environment (with the app) and the migrations belong to root: a process

@@ -188,10 +188,23 @@ jobs:
       # One route of each router, asked for by name: url_path_for fails when
       # it is missing. len(app.routes) is not the number of routes: since
       # FastAPI 0.137 an included router is one entry (tests/test_smoke.py).
+      # In development: production would refuse the default settings.
       - name: Smoke test
         run: |
-          docker run --rm fastapi-starter:ci python -c \
+          docker run --rm -e APP_ENVIRONMENT=development fastapi-starter:ci python -c \
             "from fastapi_starter.main import create_app; app = create_app(); print('routes found:', *(app.url_path_for(name) for name in ('root', 'liveness', 'get_me', 'list_notes')))"
+
+      # The image runs as production unless told otherwise: started without
+      # settings, the app must refuse and name what to set, not run as
+      # development with /docs open.
+      - name: The image refuses to start without settings
+        run: |
+          if docker run --rm fastapi-starter:ci python -c \
+            "from fastapi_starter.main import create_app; create_app()" 2> refusal.txt; then
+            echo "The image started without settings"
+            exit 1
+          fi
+          grep -A 20 "refusing to start in production" refusal.txt
 
       # The app runs as appuser, who must not be able to change its own
       # code: as the owner, a process taken over could rewrite it, and a
