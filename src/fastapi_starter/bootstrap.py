@@ -1,5 +1,8 @@
 """Composition root helpers — service initialization and shutdown.
 
+start_services() is the one place that knows which services the app has:
+another identity provider changes this module, not main.py.
+
 Every adapter goes into app.state through a variable typed as its port
 (``provider: OAuthProvider = KeycloakClient(...)``). app.state has no
 types and the getters trust what they read, so this assignment is the one
@@ -26,6 +29,7 @@ from fastapi_starter.core.config import (
     DatabaseSettings,
     KeycloakSettings,
     ServerSettings,
+    Settings,
 )
 from fastapi_starter.core.database import DatabaseManager, database_url
 from fastapi_starter.core.database.protocols import DatabaseProvider
@@ -41,6 +45,28 @@ from fastapi_starter.features.health.router import health_router
 logger = get_logger(__name__)
 
 CleanupFn = Callable[[], Awaitable[Any]]
+
+
+async def start_services(
+    app_state: State, settings: Settings, services: list[tuple[str, CleanupFn]]
+) -> None:
+    """Open every service, and put each adapter in app state.
+
+    Each service goes into ``services`` as soon as it is open, so the
+    caller can close it whatever happens next: a later service that fails
+    to start, or a cancellation.
+    """
+    db_manager = await init_database(app_state, settings.database)
+    services.append(("database", db_manager.disconnect))
+
+    # One client for every call to Keycloak: signing keys and tokens.
+    # It is registered before the adapters that use it, so a failure
+    # while they start still closes it.
+    keycloak_http = create_keycloak_http_client(settings.keycloak)
+    services.append(("keycloak_http_client", keycloak_http.aclose))
+
+    await init_auth_service(app_state, settings.keycloak, keycloak_http)
+    await init_oauth_provider(app_state, settings.keycloak, keycloak_http)
 
 
 async def init_database(
@@ -71,7 +97,8 @@ async def init_database(
 def create_keycloak_http_client(settings: KeycloakSettings) -> httpx.AsyncClient:
     """HTTP client shared by every Keycloak adapter: one connection pool.
 
-    The adapters only use it. Whoever creates it closes it — the lifespan.
+    The adapters only use it. start_services() creates it, and the
+    lifespan closes it.
     """
     return httpx.AsyncClient(timeout=settings.request_timeout)
 

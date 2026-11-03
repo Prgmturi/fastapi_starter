@@ -319,7 +319,8 @@ class TestServicesReachTheRoutes:
             "fastapi_starter.bootstrap.DatabaseManager", OfflineDatabaseManager
         )
         monkeypatch.setattr(
-            "fastapi_starter.main.create_keycloak_http_client", keycloak_http_client
+            "fastapi_starter.bootstrap.create_keycloak_http_client",
+            keycloak_http_client,
         )
         app = create_app(settings)
 

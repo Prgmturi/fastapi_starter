@@ -35,7 +35,7 @@ class JWKSManager:
         Args:
             settings: Keycloak realm and key cache configuration.
             http_client: Client for the calls to Keycloak. The caller owns it
-                and closes it at shutdown (see lifespan in main.py).
+                and closes it at shutdown (start_services in bootstrap.py).
             clock: Seconds from an arbitrary origin. Monotonic by default, so
                 a change of the system clock cannot expire or extend the
                 cache. Tests pass a fake one.

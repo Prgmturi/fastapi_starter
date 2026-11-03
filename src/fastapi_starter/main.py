@@ -6,12 +6,9 @@ from fastapi import FastAPI
 
 from fastapi_starter.bootstrap import (
     CleanupFn,
-    create_keycloak_http_client,
-    init_auth_service,
-    init_database,
-    init_oauth_provider,
     register_middleware,
     shutdown_services,
+    start_services,
 )
 from fastapi_starter.core.config import Settings, get_settings
 from fastapi_starter.core.logging import configure_logging, get_logger
@@ -28,26 +25,16 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan handler for startup and shutdown events.
 
-    Every service is added to ``services`` as soon as it is open, and the
-    finally block closes them whatever ends the lifespan: a normal
-    shutdown, a service that fails to start, or a cancellation. uvicorn
-    cancels the lifespan at yield when Ctrl+C arrives during startup, and
-    CancelledError is not an Exception.
+    start_services() adds every service to ``services`` as soon as it is
+    open, and the finally block closes them whatever ends the lifespan: a
+    normal shutdown, a service that fails to start, or a cancellation.
+    uvicorn cancels the lifespan at yield when Ctrl+C arrives during
+    startup, and CancelledError is not an Exception.
     """
     settings: Settings = app.state.settings
     services: list[tuple[str, CleanupFn]] = []
     try:
-        db_manager = await init_database(app.state, settings.database)
-        services.append(("database", db_manager.disconnect))
-
-        # One client for every call to Keycloak: signing keys and tokens.
-        # It is registered before the adapters that use it, so a failure
-        # while they start still closes it.
-        keycloak_http = create_keycloak_http_client(settings.keycloak)
-        services.append(("keycloak_http_client", keycloak_http.aclose))
-
-        await init_auth_service(app.state, settings.keycloak, keycloak_http)
-        await init_oauth_provider(app.state, settings.keycloak, keycloak_http)
+        await start_services(app.state, settings, services)
 
         logger.info(
             "application_started",
