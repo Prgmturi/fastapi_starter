@@ -16,7 +16,7 @@ from fastapi_starter.core.auth.protocols import (
     TokenDecoder,
     TokenValidator,
 )
-from fastapi_starter.core.protocols import HealthCheckable, KeyProvider
+from fastapi_starter.core.protocols import HealthCheckable
 
 
 class TestCoreProtocols:
@@ -30,18 +30,6 @@ class TestCoreProtocols:
                 return True
 
         assert isinstance(_Impl(), HealthCheckable)
-
-    def test_key_provider_is_runtime_checkable(self):
-        """[CT] KeyProvider supports isinstance()."""
-
-        class _Impl:
-            async def get_signing_key_from_token(self, token):
-                return None
-
-            async def health_check(self) -> bool:
-                return True
-
-        assert isinstance(_Impl(), KeyProvider)
 
 
 class TestAuthProtocols:

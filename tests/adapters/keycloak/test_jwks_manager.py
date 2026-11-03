@@ -17,10 +17,10 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt.algorithms import RSAAlgorithm
 
+from fastapi_starter.adapters.keycloak.jwks import KeyProvider
 from fastapi_starter.adapters.keycloak.jwks_manager import JWKSManager
 from fastapi_starter.core.config.keycloak import KeycloakSettings
 from fastapi_starter.core.exceptions import ServiceUnavailableError
-from fastapi_starter.core.protocols import KeyProvider
 
 
 class FakeCertsEndpoint:

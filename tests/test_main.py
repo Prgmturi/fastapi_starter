@@ -9,6 +9,7 @@ up only in production, as sockets left open after a failed start.
 """
 
 import asyncio
+import inspect
 import os
 import subprocess
 import sys
@@ -17,6 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import FastAPI
 
+from fastapi_starter import main
 from fastapi_starter.core.config import AppSettings, Settings
 from fastapi_starter.main import create_app, lifespan
 
@@ -186,9 +188,10 @@ def logged_events(logger: MagicMock) -> list[str]:
     return [call.args[0] for call in logger.info.call_args_list]
 
 
-@patch("fastapi_starter.main.init_oauth_provider")
-@patch("fastapi_starter.main.init_auth_service")
-@patch("fastapi_starter.main.init_database")
+# start_services() in bootstrap.py calls them: patched where it looks them up
+@patch("fastapi_starter.bootstrap.init_oauth_provider")
+@patch("fastapi_starter.bootstrap.init_auth_service")
+@patch("fastapi_starter.bootstrap.init_database")
 class TestLifespan:
     """lifespan() — service startup and shutdown.
 
@@ -339,6 +342,17 @@ class TestLifespan:
                 pass
 
         assert "application_started" not in logged_events(main_logger)
+
+
+def test_main_names_no_identity_provider():
+    """[HP] main.py knows no Keycloak: start_services() in bootstrap.py does.
+
+    WHY: docs/architecture.md and ADR 0001 say that another identity
+    provider takes a new adapter and its wiring in bootstrap.py. The
+    lifespan created the Keycloak client and started its adapters itself,
+    so main.py had to change too.
+    """
+    assert "keycloak" not in inspect.getsource(main).lower()
 
 
 class TestRootEndpoint:

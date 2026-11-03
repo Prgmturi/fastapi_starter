@@ -5,6 +5,9 @@
 - jwks.py: the checks on an access token, with PyJWT (TokenDecoder)
 - extractors.py: the claims of a token mapped to User (ClaimExtractor)
 
+KeyProvider is a port of these adapters only: jwks.py declares it, next to
+JWKSTokenDecoder, the one class that uses it.
+
 Their settings, KeycloakSettings, stay in core/config: Settings gathers
 every section there, and core never imports an adapter.
 """

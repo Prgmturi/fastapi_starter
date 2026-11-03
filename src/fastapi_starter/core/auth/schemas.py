@@ -32,16 +32,6 @@ class RoleEnum(StrEnum):
     COLLAB = "collaborator"
     USER = "user"
 
-    @classmethod
-    def all_roles(cls) -> list[RoleEnum]:
-        """Get all defined roles."""
-        return [cls.SUPERADMIN, cls.ADMIN, cls.COLLAB, cls.USER]
-
-    @classmethod
-    def staff_roles(cls) -> list[RoleEnum]:
-        """Roles with elevated privileges."""
-        return [cls.SUPERADMIN, cls.ADMIN]
-
 
 class User(BaseModel):
     id: str = Field(
@@ -117,6 +107,3 @@ class User(BaseModel):
 
     def has_all_roles(self, roles: list[RoleEnum | str]) -> bool:
         return all(role in self.roles for role in roles)
-
-    def is_staff(self) -> bool:
-        return any(role in self.roles for role in RoleEnum.staff_roles())

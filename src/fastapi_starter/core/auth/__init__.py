@@ -16,7 +16,7 @@ from fastapi_starter.core.auth.protocols import (
 from fastapi_starter.core.auth.schemas import RoleEnum, TokenResponse, User
 
 __all__ = [
-    # Protocols (auth-specific only; HealthCheckable/KeyProvider live in core.protocols)
+    # Protocols (auth-specific only; HealthCheckable lives in core.protocols)
     "TokenValidator",
     "TokenDecoder",
     "ClaimExtractor",

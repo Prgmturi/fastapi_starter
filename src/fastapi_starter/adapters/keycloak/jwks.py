@@ -1,12 +1,12 @@
 from collections.abc import Collection
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 import jwt
+from jwt import PyJWK
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 
 from fastapi_starter.core.exceptions import AppExceptionError, UnauthorizedError
 from fastapi_starter.core.logging import get_logger
-from fastapi_starter.core.protocols import KeyProvider
 
 logger = get_logger(__name__)
 
@@ -23,6 +23,19 @@ CLOCK_SKEW_LEEWAY = 30
 # without this a signed token lacking exp would never expire. sub is the
 # user's id: every request needs it.
 REQUIRED_CLAIMS = ["exp", "iat", "iss", "sub"]
+
+
+@runtime_checkable
+class KeyProvider(Protocol):
+    """The realm's public keys: JWKSManager, in jwks_manager.py.
+
+    Only JWKSTokenDecoder uses it, and the key is PyJWT's, so it stays
+    with the Keycloak adapters, not with the ports of core.
+    """
+
+    async def get_signing_key_from_token(self, token: str) -> PyJWK: ...
+
+    async def health_check(self) -> bool: ...
 
 
 class JWKSTokenDecoder:

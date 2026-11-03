@@ -75,7 +75,7 @@ jobs:
     permissions:
       contents: read
 
-    # A Postgres for this job only, the image of docker/docker-compose.yaml.
+    # A Postgres for this job only, the image of compose.yaml.
     # GitHub starts it before the steps and waits until pg_isready answers.
     services:
       postgres:

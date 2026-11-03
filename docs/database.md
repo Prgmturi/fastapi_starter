@@ -82,7 +82,7 @@ uv run alembic revision --autogenerate -m "add products table"
 uv run alembic downgrade -1                                  # one migration back
 ```
 
-- **Where models live.** Define a model by subclassing `Base` from `core/database/base.py`, in a module called `models` under `features/`: `features/<name>/models.py`, or, as in the example, `features/notes/persistence/models.py`. `alembic/env.py` imports every such module, at any depth (`core/database/migrations.py`), so no model is left out of a migration.
+- **Where models live.** Define a model by subclassing `Base` from `core/database/base.py`, in a module called `models` under `features/`: `features/<name>/models.py`, or, as in the example, `features/notes/persistence/models.py`. `alembic/env.py` imports every such module, at any depth (`core/database/migrations.py`), so no model is left out of a migration. A model anywhere else would be: `tests/core/database/test_migrations.py` fails, and names it.
 - **No model at all.** `--autogenerate` then stops with an explanation, instead of writing a migration that drops every table of the database.
 - **Read it first.** Read the file Alembic writes in `alembic/versions/` before you commit it, and let ruff tidy it (`uv run ruff format`).
 - **Only `DATABASE_*`.** Migrations read no other setting, so they run before a new version starts, without the rest of the configuration. In `compose.yaml` the `migrate` service runs `alembic upgrade head` from the image of the app, and the API starts only after it succeeds.

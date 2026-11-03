@@ -31,26 +31,17 @@ def _make_user(**overrides) -> User:
 
 
 class TestRoleEnum:
-    """RoleEnum values and helper methods.
+    """RoleEnum members and values.
 
     WHY: RoleEnum is referenced in authorization decisions throughout the app.
-    These tests lock down the enum membership and convenience methods so that
-    adding/removing a role is a deliberate, visible change.
+    These tests lock down the enum membership so that adding/removing a role
+    is a deliberate, visible change.
     """
 
-    def test_all_roles_returns_complete_list(self):
-        """[HP] all_roles() returns all four defined roles."""
-        result = RoleEnum.all_roles()
-
+    def test_defines_four_roles(self):
+        """[HP] RoleEnum has the four roles of the realm, and no other."""
         expected = {RoleEnum.SUPERADMIN, RoleEnum.ADMIN, RoleEnum.COLLAB, RoleEnum.USER}
-        assert set(result) == expected
-        assert len(result) == 4
-
-    def test_staff_roles_returns_admin_and_superadmin(self):
-        """[HP] staff_roles() returns only SUPERADMIN and ADMIN."""
-        result = RoleEnum.staff_roles()
-
-        assert result == [RoleEnum.SUPERADMIN, RoleEnum.ADMIN]
+        assert set(RoleEnum) == expected
 
     def test_role_values_match_expected_strings(self):
         """[CT] Each RoleEnum member has the expected string value.
@@ -114,7 +105,7 @@ class TestUser:
     """User model validation, computed properties, and role methods.
 
     WHY: User is the domain identity object. All authorization decisions
-    flow through has_role/has_any_role/is_staff. We must verify:
+    flow through has_role/has_any_role/has_all_roles. We must verify:
     1. Pydantic constraints are correctly configured (not that Pydantic works)
     2. Computed properties behave correctly at boundaries
     3. Role-checking methods handle both enum and string inputs
@@ -356,27 +347,3 @@ class TestUser:
         user = _make_user(roles=[RoleEnum.USER])
 
         assert user.has_all_roles([RoleEnum.ADMIN, RoleEnum.USER]) is False
-
-    def test_is_staff_true_for_admin(self):
-        """[HP] is_staff returns True for ADMIN role."""
-        user = _make_user(roles=[RoleEnum.ADMIN])
-
-        assert user.is_staff() is True
-
-    def test_is_staff_true_for_superadmin(self):
-        """[HP] is_staff returns True for SUPERADMIN role."""
-        user = _make_user(roles=[RoleEnum.SUPERADMIN])
-
-        assert user.is_staff() is True
-
-    def test_is_staff_false_for_user(self):
-        """[EC] is_staff returns False for USER-only role."""
-        user = _make_user(roles=[RoleEnum.USER])
-
-        assert user.is_staff() is False
-
-    def test_is_staff_false_for_collaborator(self):
-        """[EC] is_staff returns False for COLLAB-only role."""
-        user = _make_user(roles=[RoleEnum.COLLAB])
-
-        assert user.is_staff() is False

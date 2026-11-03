@@ -1,9 +1,5 @@
 from pydantic import BaseModel, Field
 
-from fastapi_starter.core.auth.schemas import (
-    TokenResponse as TokenResponse,  # re-export
-)
-
 
 class TokenRequest(BaseModel):
     """Request to exchange authorization code for tokens."""

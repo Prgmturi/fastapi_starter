@@ -27,7 +27,7 @@ class KeycloakClient:
         Args:
             settings: Keycloak realm and client credentials.
             http_client: Client for the calls to Keycloak. The caller owns it
-                and closes it at shutdown (see lifespan in main.py).
+                and closes it at shutdown (start_services in bootstrap.py).
         """
         self._settings = settings
         self._client = http_client

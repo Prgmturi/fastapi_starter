@@ -17,6 +17,7 @@ from fastapi_starter.core.exceptions import (
     ValidationError,
 )
 from fastapi_starter.core.logging import get_logger
+from fastapi_starter.core.state import StateKey
 from fastapi_starter.features.auth.schemas import (
     AccessTokenResponse,
     AuthUrlResponse,
@@ -28,11 +29,13 @@ from fastapi_starter.features.auth.schemas import (
 auth_router = APIRouter(prefix="/auth", tags=["Authentication"])
 logger = get_logger(__name__)
 
+# Set by bootstrap.py at startup
+OAUTH_PROVIDER = StateKey[OAuthProvider]("oauth_provider")
+
 
 def get_oauth_provider(request: Request) -> OAuthProvider:
     """Get OAuthProvider from app state."""
-    provider: OAuthProvider = request.app.state.oauth_provider
-    return provider
+    return OAUTH_PROVIDER.get(request.app.state)
 
 
 def get_keycloak_settings(request: Request) -> KeycloakSettings:

@@ -10,6 +10,8 @@ autogenerate wrote, without an error (tried on 27 October 2026: with one
 model imported and one forgotten, autogenerate created only the first).
 """
 
+import importlib
+import pkgutil
 import sys
 import uuid
 from collections.abc import Iterator
@@ -105,6 +107,32 @@ def test_finds_the_model_of_notes():
 
     assert "fastapi_starter.features.notes.persistence.models" in found
     assert "notes" in Base.metadata.tables
+
+
+def test_every_model_is_in_a_module_alembic_imports():
+    """[EC] Each model of the app is in a models module under features/.
+
+    WHY: alembic/env.py imports only those modules. A model anywhere else is
+    missing from every migration, and alembic check says nothing (tried on
+    2 November 2026 with a model in features/tags.py). Every module of the
+    app is imported first, so a model is found wherever it is.
+    """
+    imported_by_alembic = set(import_models(fastapi_starter.features))
+    for module in pkgutil.walk_packages(fastapi_starter.__path__, "fastapi_starter."):
+        importlib.import_module(module.name)
+
+    misplaced = sorted(
+        f"{mapper.class_.__module__}.{mapper.class_.__name__}"
+        for mapper in Base.registry.mappers
+        # The fake models of the tests live in tests/
+        if mapper.class_.__module__.startswith("fastapi_starter.")
+        and mapper.class_.__module__ not in imported_by_alembic
+    )
+
+    assert not misplaced, (
+        f"Alembic never sees {misplaced}: move each to a module called models "
+        "under features/, such as features/notes/persistence/models.py"
+    )
 
 
 def test_alembic_env_uses_both():

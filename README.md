@@ -104,8 +104,7 @@ To add `tasks`:
 
    Then rename `notes` and `note` inside the copies, capitals too (`CreateNoteRequest` becomes `CreateTaskRequest`), and `domain/note.py` becomes `domain/task.py`.
 2. **Register the router** in `create_app()` of `main.py`: import `tasks_router` from `fastapi_starter.features.tasks.api.router`, and add `app.include_router(tasks_router)` after the others.
-3. **Add the feature to its contract:** put `"fastapi_starter.features.tasks"` in the `containers` of the contract "Inside a feature", in `pyproject.toml`.
-4. **Write the migration.** Alembic finds the new table by itself:
+3. **Write the migration.** Alembic finds the new table by itself:
 
    ```bash
    uv run alembic revision --autogenerate -m "create tasks table"
@@ -113,7 +112,7 @@ To add `tasks`:
    ```
 
    Read the file it writes in `alembic/versions/` before you commit it.
-5. **Tidy and check.** `uv run ruff check --fix` and `uv run ruff format`: the new names change the order of some imports, and Alembic writes in its own style. Then `uv run pytest`, `uv run pytest -m integration`, `uv run mypy src/` and `uv run lint-imports`.
+4. **Tidy and check.** `uv run ruff check --fix` and `uv run ruff format`: the new names change the order of some imports, and Alembic writes in its own style. Then `uv run pytest`, `uv run pytest -m integration`, `uv run mypy src/` and `uv run lint-imports`.
 
 Keep the rules of the example: the owner comes from the token, never from the body; every query filters by owner; a note of another user answers 404, like a missing one. A feature with no rules of its own can stay flat, as `features/auth` is. Both are explained in [the architecture guide](docs/architecture.md#the-example-feature).
 
