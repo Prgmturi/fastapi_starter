@@ -7,14 +7,17 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi_starter.core.auth.protocols import TokenValidator
 from fastapi_starter.core.auth.schemas import RoleEnum, User
 from fastapi_starter.core.exceptions import ForbiddenError, UnauthorizedError
+from fastapi_starter.core.state import StateKey
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+# Set by bootstrap.py at startup
+AUTH_SERVICE = StateKey[TokenValidator]("auth_service")
 
 
 def get_auth_service(request: Request) -> TokenValidator:
     """Get TokenValidator from app state."""
-    service: TokenValidator = request.app.state.auth_service
-    return service
+    return AUTH_SERVICE.get(request.app.state)
 
 
 async def get_current_user(

@@ -47,7 +47,7 @@ On every push and pull request, so that breaking a rule fails the build:
   - inside a feature, `api` → `persistence` → `domain`.
 
   A broken contract prints what to do instead.
-- **mypy** checks that each adapter still matches its port: `bootstrap.py` stores every adapter in `app.state` through a variable typed as the port.
+- **mypy** checks that each adapter still matches its port: `bootstrap.py` stores every adapter in `app.state` through the `StateKey` of its port (`core/state.py`), and a test refuses any other write to `app.state`.
 - **ruff** refuses imports inside functions (`PLC0415`).
 - **Tests that import modules in a new process.** import-linter reads the import statements of each module, but not what the `__init__.py` of a package pulls in. These tests check what is really loaded: `core` loads no feature and no adapter, the health probe loads none of what its contract forbids, a domain loads no framework.
 - **`tests/test_import_contracts.py`** checks that every module a contract names exists. import-linter stays silent when a forbidden module does not, so a contract that names a module after it moved would check nothing.

@@ -5,6 +5,10 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fastapi_starter.core.database.protocols import DatabaseProvider
+from fastapi_starter.core.state import StateKey
+
+# Set by bootstrap.py at startup
+DB_MANAGER = StateKey[DatabaseProvider]("db_manager")
 
 
 def get_db_manager(request: Request) -> DatabaseProvider:
@@ -14,8 +18,7 @@ def get_db_manager(request: Request) -> DatabaseProvider:
     The manager is stored in app.state during startup.
     """
     try:
-        manager: DatabaseProvider = request.app.state.db_manager
-        return manager
+        return DB_MANAGER.get(request.app.state)
     except AttributeError as err:
         raise RuntimeError("DatabaseManager not initialized") from err
 

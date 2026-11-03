@@ -3,10 +3,9 @@
 start_services() is the one place that knows which services the app has:
 another identity provider changes this module, not main.py.
 
-Every adapter goes into app.state through a variable typed as its port
-(``provider: OAuthProvider = KeycloakClient(...)``). app.state has no
-types and the getters trust what they read, so this assignment is the one
-place where mypy checks that an adapter still matches its port.
+Every adapter goes into app.state through the StateKey of its port, next
+to the getter that reads it (``OAUTH_PROVIDER.set(state, KeycloakClient(...))``):
+mypy checks there that the adapter still matches the port.
 """
 
 from collections.abc import Awaitable, Callable
@@ -22,7 +21,7 @@ from fastapi_starter.adapters.keycloak.client import KeycloakClient
 from fastapi_starter.adapters.keycloak.extractors import KeycloakClaimExtractor
 from fastapi_starter.adapters.keycloak.jwks import JWKSTokenDecoder
 from fastapi_starter.adapters.keycloak.jwks_manager import JWKSManager
-from fastapi_starter.core.auth.protocols import OAuthProvider, TokenValidator
+from fastapi_starter.core.auth.dependencies import AUTH_SERVICE
 from fastapi_starter.core.auth.service import AuthService
 from fastapi_starter.core.body_limit import BodySizeLimitMiddleware
 from fastapi_starter.core.config import (
@@ -32,7 +31,7 @@ from fastapi_starter.core.config import (
     Settings,
 )
 from fastapi_starter.core.database import DatabaseManager, database_url
-from fastapi_starter.core.database.protocols import DatabaseProvider
+from fastapi_starter.core.database.dependencies import DB_MANAGER
 from fastapi_starter.core.error_middleware import UnhandledExceptionMiddleware
 from fastapi_starter.core.logging import (
     REQUEST_ID_HEADER,
@@ -40,6 +39,7 @@ from fastapi_starter.core.logging import (
     get_logger,
 )
 from fastapi_starter.core.security import SecureHeadersMiddleware
+from fastapi_starter.features.auth.router import OAUTH_PROVIDER
 from fastapi_starter.features.health.router import health_router
 
 logger = get_logger(__name__)
@@ -89,8 +89,7 @@ async def init_database(
     )
     # app.state holds the port, for the routes. The lifespan gets the
     # manager itself, because disconnect() is not part of the port.
-    provider: DatabaseProvider = db_manager
-    app_state.db_manager = provider
+    DB_MANAGER.set(app_state, db_manager)
     return db_manager
 
 
@@ -119,7 +118,7 @@ async def init_auth_service(
     extractor = KeycloakClaimExtractor(settings.client_id)
     # JWKSTokenDecoder implements both TokenDecoder and HealthCheckable
     # (health_check delegates to the underlying JWKSManager)
-    auth_service: TokenValidator = AuthService(
+    auth_service = AuthService(
         decoder=decoder, extractor=extractor, health_checker=decoder
     )
 
@@ -135,15 +134,14 @@ async def init_auth_service(
         allowed_clients=settings.allowed_clients,
         audience=settings.audience or None,
     )
-    app_state.auth_service = auth_service
+    AUTH_SERVICE.set(app_state, auth_service)
 
 
 async def init_oauth_provider(
     app_state: State, settings: KeycloakSettings, http_client: httpx.AsyncClient
 ) -> None:
     """Initialize OAuth provider for token operations."""
-    provider: OAuthProvider = KeycloakClient(settings, http_client)
-    app_state.oauth_provider = provider
+    OAUTH_PROVIDER.set(app_state, KeycloakClient(settings, http_client))
 
 
 async def shutdown_services(
