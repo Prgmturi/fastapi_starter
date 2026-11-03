@@ -524,6 +524,21 @@ class TestProductionChecks:
             # echo logs every query with its values: personal data in the logs
             ({"DATABASE_ECHO": "true"}, "DATABASE_ECHO"),
             ({"SERVER_CORS_ORIGINS": '["*"]'}, "SERVER_CORS_ORIGINS"),
+            # Unset: the frontends of development, on localhost
+            ({"SERVER_CORS_ORIGINS": None}, "SERVER_CORS_ORIGINS"),
+            # A development origin left beside the real one
+            (
+                {
+                    "SERVER_CORS_ORIGINS": (
+                        '["https://app.example.com", "http://localhost:3000"]'
+                    )
+                },
+                "SERVER_CORS_ORIGINS",
+            ),
+            (
+                {"SERVER_CORS_ORIGINS": '["http://127.0.0.1:5173"]'},
+                "SERVER_CORS_ORIGINS",
+            ),
             ({"SERVER_TRUSTED_HOSTS": None}, "SERVER_TRUSTED_HOSTS"),
             ({"SERVER_TRUSTED_HOSTS": '["*"]'}, "SERVER_TRUSTED_HOSTS"),
             # Anyone could choose the client address the logs show
@@ -541,6 +556,9 @@ class TestProductionChecks:
             "db-password-example",
             "db-echo",
             "cors-any-origin",
+            "cors-unset",
+            "cors-localhost-beside-the-frontend",
+            "cors-loopback",
             "trusted-hosts-local",
             "trusted-hosts-any",
             "forwarded-any",
@@ -558,6 +576,12 @@ class TestProductionChecks:
             Settings()
 
         assert named in str(exc_info.value)
+
+    def test_origin_named_like_localhost_accepted(self, deployed, monkeypatch):
+        """[EC] Only the host localhost is local, not a name that contains it."""
+        monkeypatch.setenv("SERVER_CORS_ORIGINS", '["https://localhost.example.com"]')
+
+        assert Settings().server.cors_origins == ["https://localhost.example.com"]
 
     @pytest.mark.parametrize("environment", ["staging", "production"])
     def test_every_problem_in_one_error(self, monkeypatch, environment):
@@ -579,6 +603,7 @@ class TestProductionChecks:
             "KEYCLOAK_CLIENT_SECRET",
             "KEYCLOAK_ALLOWED_REDIRECT_URIS",
             "DATABASE_PASSWORD",
+            "SERVER_CORS_ORIGINS",
             "SERVER_TRUSTED_HOSTS",
         ):
             assert named in message

@@ -5,6 +5,8 @@ every problem in one error. Messages name the variable to change, never its
 value.
 """
 
+from urllib.parse import urlsplit
+
 from fastapi_starter.core.config.app import AppSettings
 from fastapi_starter.core.config.auth_cookie import AuthCookieSettings
 from fastapi_starter.core.config.database import DatabaseSettings
@@ -16,7 +18,8 @@ EXAMPLE_DATABASE_PASSWORDS = {"postgres", "appbase_secret_change_me"}
 # Empty by default; the old placeholder of .env.example; the secret of the
 # development realm (docker/keycloak/realm-dev.json), public in the repository
 EXAMPLE_CLIENT_SECRETS = {"", "your-client-secret-here", "fastapi-backend-dev-secret"}
-# The default SERVER_TRUSTED_HOSTS
+# The default SERVER_TRUSTED_HOSTS, and the hosts of the default
+# SERVER_CORS_ORIGINS
 LOCAL_HOSTS = {"localhost", "127.0.0.1"}
 
 
@@ -57,6 +60,13 @@ def production_problems(
 
     if "*" in server.cors_origins:
         problems.append('SERVER_CORS_ORIGINS contains "*"')
+    # With credentials allowed, the default, a page on that port of the
+    # user's machine, whatever serves it, calls the API as the frontend does
+    if any(urlsplit(origin).hostname in LOCAL_HOSTS for origin in server.cors_origins):
+        problems.append(
+            "SERVER_CORS_ORIGINS lists localhost or 127.0.0.1: "
+            "list only the frontend's origin"
+        )
     if "*" in server.trusted_hosts:
         problems.append('SERVER_TRUSTED_HOSTS contains "*": any Host is accepted')
     elif set(server.trusted_hosts) <= LOCAL_HOSTS:
