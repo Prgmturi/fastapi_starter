@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from fastapi_starter.core.config import AppSettings, ServerSettings, Settings
+from fastapi_starter.core.config import Settings
 from fastapi_starter.features.health import router as health_router_module
 
 
@@ -71,12 +71,14 @@ class TestLivenessSettingsSource:
     """
 
     @pytest.fixture
-    def settings(self) -> Settings:
-        """Overrides the root fixture: an app built for staging."""
-        return Settings(
-            app=AppSettings(environment="staging"),
-            server=ServerSettings(trusted_hosts=["testserver"]),
-        )
+    def settings(self, production_env, monkeypatch) -> Settings:
+        """Overrides the root fixture: an app built for staging.
+
+        Staging refuses development values, so it starts from a valid deploy.
+        """
+        monkeypatch.setenv("APP_ENVIRONMENT", "staging")
+        monkeypatch.setenv("SERVER_TRUSTED_HOSTS", '["testserver"]')
+        return Settings()
 
     async def test_reports_environment_of_this_app(self, client):
         """[HP] environment comes from app.state.settings, not from .env."""

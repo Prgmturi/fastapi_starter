@@ -55,7 +55,7 @@ Frontend (browser)                          API                         Keycloak
 
 ## Cookies and origins
 
-- **CORS.** `SERVER_CORS_ORIGINS` lists the origins of the frontend exactly: scheme, host and port. Credentials are allowed (`SERVER_CORS_ALLOW_CREDENTIALS`, true by default). `/auth/refresh` and `/auth/logout` refuse with 403 a request whose `Origin` is not listed, before they read the cookie. List the frontend even when a proxy serves it on the same origin as the API.
+- **CORS.** `SERVER_CORS_ORIGINS` lists the origins of the frontend exactly: scheme, host and port. Credentials are allowed (`SERVER_CORS_ALLOW_CREDENTIALS`, true by default). `/auth/refresh` and `/auth/logout` refuse with 403 a request whose `Origin` is not listed, before they read the cookie. List the frontend even when a proxy serves it on the same origin as the API. Staging and production refuse to start with an origin on localhost or 127.0.0.1: a frontend on your machine calls an API in development.
 - **The cookie** (`AUTH_COOKIE_*`) is by default `__Host-rt`, `Secure`, `SameSite=lax` and `Path=/`.
   - Frontend and API on one site: `app.example.com` and `api.example.com` share the site `example.com`, and so do `localhost:5173` and `localhost:8000`, since the port does not count. `lax` works.
   - On two sites, such as `app.example.com` and `api.example.net`, the browser does not send a `lax` cookie with `fetch`. That takes `AUTH_COOKIE_SAMESITE=none`, which browsers accept only with `Secure`, so over https. Such a cookie is a third-party cookie, which some browsers block (Safari by default): keep the frontend and the API on one site when you can.

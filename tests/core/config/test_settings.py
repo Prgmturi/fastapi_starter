@@ -475,17 +475,24 @@ class TestErrorsShowNoValues:
 
 
 class TestProductionChecks:
-    """With APP_ENVIRONMENT=production, development values stop the startup.
+    """Outside development, development values stop the startup.
 
     WHY: the app started in production with debug on, Keycloak on http, an
     empty client secret, the password "postgres" and the development
-    trusted hosts. Each change below starts from a valid production
-    environment (production_env) and breaks one thing.
+    trusted hosts. Staging then still started with all of them (tried on 3
+    November 2026). Each change below starts from a valid deploy (deployed),
+    in staging and in production, and breaks one thing.
     """
 
-    def test_valid_production_environment_starts(self, production_env):
+    @pytest.fixture(params=["staging", "production"])
+    def deployed(self, request, production_env, monkeypatch) -> dict[str, str]:
+        """A valid deploy, in each environment the checks guard."""
+        monkeypatch.setenv("APP_ENVIRONMENT", request.param)
+        return {**production_env, "APP_ENVIRONMENT": request.param}
+
+    def test_valid_deploy_starts(self, deployed):
         """[HP] Real values everywhere: no error."""
-        assert Settings().app.environment == "production"
+        assert Settings().app.environment == deployed["APP_ENVIRONMENT"]
 
     def test_development_defaults_still_start(self):
         """[HP] The checks never block development."""
@@ -517,6 +524,21 @@ class TestProductionChecks:
             # echo logs every query with its values: personal data in the logs
             ({"DATABASE_ECHO": "true"}, "DATABASE_ECHO"),
             ({"SERVER_CORS_ORIGINS": '["*"]'}, "SERVER_CORS_ORIGINS"),
+            # Unset: the frontends of development, on localhost
+            ({"SERVER_CORS_ORIGINS": None}, "SERVER_CORS_ORIGINS"),
+            # A development origin left beside the real one
+            (
+                {
+                    "SERVER_CORS_ORIGINS": (
+                        '["https://app.example.com", "http://localhost:3000"]'
+                    )
+                },
+                "SERVER_CORS_ORIGINS",
+            ),
+            (
+                {"SERVER_CORS_ORIGINS": '["http://127.0.0.1:5173"]'},
+                "SERVER_CORS_ORIGINS",
+            ),
             ({"SERVER_TRUSTED_HOSTS": None}, "SERVER_TRUSTED_HOSTS"),
             ({"SERVER_TRUSTED_HOSTS": '["*"]'}, "SERVER_TRUSTED_HOSTS"),
             # Anyone could choose the client address the logs show
@@ -534,14 +556,15 @@ class TestProductionChecks:
             "db-password-example",
             "db-echo",
             "cors-any-origin",
+            "cors-unset",
+            "cors-localhost-beside-the-frontend",
+            "cors-loopback",
             "trusted-hosts-local",
             "trusted-hosts-any",
             "forwarded-any",
         ],
     )
-    def test_development_value_refused(
-        self, production_env, monkeypatch, change, named
-    ):
+    def test_development_value_refused(self, deployed, monkeypatch, change, named):
         """[SEC] One development value -> an error that names its variable."""
         for name, value in change.items():
             if value is None:
@@ -554,37 +577,46 @@ class TestProductionChecks:
 
         assert named in str(exc_info.value)
 
-    def test_every_problem_in_one_error(self, monkeypatch):
+    def test_origin_named_like_localhost_accepted(self, deployed, monkeypatch):
+        """[EC] Only the host localhost is local, not a name that contains it."""
+        monkeypatch.setenv("SERVER_CORS_ORIGINS", '["https://localhost.example.com"]')
+
+        assert Settings().server.cors_origins == ["https://localhost.example.com"]
+
+    @pytest.mark.parametrize("environment", ["staging", "production"])
+    def test_every_problem_in_one_error(self, monkeypatch, environment):
         """[HP] All development values at once -> one error listing them all.
 
         WHY: one error per restart would turn a deploy into a guessing game.
         """
-        monkeypatch.setenv("APP_ENVIRONMENT", "production")
+        monkeypatch.setenv("APP_ENVIRONMENT", environment)
         monkeypatch.setenv("APP_DEBUG", "true")
 
         with pytest.raises(pydantic.ValidationError) as exc_info:
             Settings()
 
         message = str(exc_info.value)
+        assert f"refusing to start in {environment}" in message
         for named in (
             "APP_DEBUG",
             "KEYCLOAK_PUBLIC_URL",
             "KEYCLOAK_CLIENT_SECRET",
             "KEYCLOAK_ALLOWED_REDIRECT_URIS",
             "DATABASE_PASSWORD",
+            "SERVER_CORS_ORIGINS",
             "SERVER_TRUSTED_HOSTS",
         ):
             assert named in message
 
-    def test_error_shows_no_secret(self, production_env, monkeypatch):
+    def test_error_shows_no_secret(self, deployed, monkeypatch):
         """[SEC] The error names variables, never their values."""
         monkeypatch.setenv("APP_DEBUG", "true")
 
         with pytest.raises(pydantic.ValidationError) as exc_info:
             Settings()
 
-        assert production_env["DATABASE_PASSWORD"] not in str(exc_info.value)
-        assert production_env["KEYCLOAK_CLIENT_SECRET"] not in str(exc_info.value)
+        assert deployed["DATABASE_PASSWORD"] not in str(exc_info.value)
+        assert deployed["KEYCLOAK_CLIENT_SECRET"] not in str(exc_info.value)
 
 
 class TestServerSettings:
