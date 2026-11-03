@@ -8,7 +8,7 @@ OAuth flow. We verify correct HTTP status codes, response structure, cookie
 behaviour, and that the refresh token never leaks into the response body.
 """
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -21,6 +21,7 @@ from fastapi_starter.core.exceptions import (
     ServiceUnavailableError,
     UnauthorizedError,
 )
+from fastapi_starter.features.auth import router as router_module
 from tests.features.auth.conftest import TEST_COOKIE_NAME
 from tests.test_exception_handlers import assert_problem
 
@@ -401,6 +402,25 @@ class TestKeycloakUnreachable:
         assert response.status_code == 200
         set_cookie = response.headers.get("set-cookie", "")
         assert "max-age=0" in set_cookie.lower()
+
+    async def test_logout_logs_one_line_without_traceback(
+        self, oauth_client_with_cookie, monkeypatch
+    ):
+        """[EC] One warning, without exc_info: the client logged the cause.
+
+        WHY: the warning carried the traceback, about 95 lines for each
+        logout while Keycloak was down (tried on 3 November 2026).
+        """
+        logger = MagicMock()
+        monkeypatch.setattr(router_module, "logger", logger)
+
+        await oauth_client_with_cookie.post("/auth/logout")
+
+        logger.warning.assert_called_once_with(
+            "logout_revocation_failed",
+            error_type="ServiceUnavailableError",
+            error="Service temporarily unavailable",
+        )
 
 
 class TestTokensAreNotCached:

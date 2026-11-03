@@ -10,6 +10,7 @@ so a change to those rules shows up as a failing test.
 
 import asyncio
 import json
+from unittest.mock import MagicMock
 
 import httpx
 import jwt as pyjwt
@@ -17,6 +18,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt.algorithms import RSAAlgorithm
 
+from fastapi_starter.adapters.keycloak import jwks_manager as jwks_manager_module
 from fastapi_starter.adapters.keycloak.jwks import KeyProvider
 from fastapi_starter.adapters.keycloak.jwks_manager import JWKSManager
 from fastapi_starter.core.config.keycloak import KeycloakSettings
@@ -118,6 +120,30 @@ class TestRefreshKeys:
 
         # The interval: no fetch happens sooner
         assert raised.value.headers == {"Retry-After": "30"}
+
+    async def test_log_names_the_type_of_the_error(
+        self, keycloak_settings, clock, monkeypatch
+    ):
+        """[EC] The log line of a silent Keycloak names the error type.
+
+        WHY: the text of a timeout can be empty, and the log said error="".
+        The module logger is replaced: it is cached on first use, so
+        capture_logs cannot see it.
+        """
+        logger = MagicMock()
+        monkeypatch.setattr(jwks_manager_module, "logger", logger)
+
+        def silent(request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("", request=request)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(silent)) as http:
+            manager = JWKSManager(keycloak_settings, http, clock=clock)
+            with pytest.raises(ServiceUnavailableError):
+                await manager.refresh_keys()
+
+        logger.error.assert_called_once_with(
+            "jwks_refresh_failed", error_type="ReadTimeout", error=""
+        )
 
 
 class TestGetKey:

@@ -98,7 +98,10 @@ class JWKSManager:
             # ValueError: the body is not JSON (a proxy error page, say).
             # PyJWKSetError: it is JSON, but holds no usable key.
             self._last_fetch_failed = True
-            logger.error("jwks_refresh_failed", error=str(e))
+            # The type too: the text of a timeout is often empty
+            logger.error(
+                "jwks_refresh_failed", error_type=type(e).__name__, error=str(e)
+            )
             return False
 
         self._jwks = jwks
