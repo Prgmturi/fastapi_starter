@@ -22,6 +22,21 @@ UNREACHABLE = (httpx.NetworkError, httpx.TimeoutException)
 RETRY_AFTER_SECONDS = 5
 
 
+def _client_rejected(operation: str) -> ExternalServiceError:
+    """The error when Keycloak answers 401: it rejects the API's own client.
+
+    That is a wrong client id or secret; a wrong code or refresh token is a
+    400 (RFC 6749, section 5.2). The user cannot fix it: a 502, and a log
+    line that says what to check, without the values.
+    """
+    logger.error(
+        "keycloak_client_rejected",
+        operation=operation,
+        hint="check KEYCLOAK_CLIENT_ID and KEYCLOAK_CLIENT_SECRET",
+    )
+    return ExternalServiceError("Keycloak")
+
+
 class KeycloakClient:
     """
     Client for Keycloak token operations.
@@ -112,7 +127,8 @@ class KeycloakClient:
         Raises:
             UnauthorizedError: If code is invalid or expired
             ServiceUnavailableError: If Keycloak cannot be reached
-            ExternalServiceError: If Keycloak answers in an unexpected way
+            ExternalServiceError: If Keycloak rejects the API's client, or
+                answers in an unexpected way
         """
         data = {
             "grant_type": "authorization_code",
@@ -140,7 +156,8 @@ class KeycloakClient:
         Raises:
             UnauthorizedError: If refresh token is invalid or expired
             ServiceUnavailableError: If Keycloak cannot be reached
-            ExternalServiceError: If Keycloak answers in an unexpected way
+            ExternalServiceError: If Keycloak rejects the API's client, or
+                answers in an unexpected way
         """
         data = {
             "grant_type": "refresh_token",
@@ -181,6 +198,9 @@ class KeycloakClient:
             logger.error("logout_request_failed", error=str(e))
             raise ExternalServiceError("Keycloak") from e
 
+        if response.status_code == 401:
+            raise _client_rejected("logout")
+
         # 204 = success, 400 = token already invalid (ok)
         if response.status_code not in (200, 204, 400):
             logger.warning(
@@ -208,9 +228,10 @@ class KeycloakClient:
             Token response
 
         Raises:
-            UnauthorizedError: If request fails with 400/401
+            UnauthorizedError: If Keycloak rejects the code or the token (400)
             ServiceUnavailableError: If Keycloak cannot be reached
-            ExternalServiceError: If Keycloak answers in an unexpected way
+            ExternalServiceError: If Keycloak rejects the API's client (401),
+                or answers in an unexpected way
         """
         try:
             response = await self._client.post(self.token_url, data=data)
@@ -227,11 +248,7 @@ class KeycloakClient:
                 raise UnauthorizedError(error_desc)
 
             if response.status_code == 401:
-                logger.warning(
-                    "token_request_unauthorized",
-                    operation=operation,
-                )
-                raise UnauthorizedError("Invalid credentials")
+                raise _client_rejected(operation)
 
             response.raise_for_status()
 

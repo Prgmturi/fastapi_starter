@@ -56,7 +56,8 @@ class OAuthProvider(Protocol):
     - UnauthorizedError when the provider rejects the code or the refresh token
     - ServiceUnavailableError when the provider cannot be reached: the same
       call can succeed later
-    - ExternalServiceError when the provider answers in an unexpected way
+    - ExternalServiceError when the provider rejects the API's own client
+      credentials, or answers in an unexpected way
     Their messages name no URL or library error. No library-specific
     exception leaks out: callers catch these three only.
     """

@@ -86,7 +86,7 @@ ssh -L 8080:127.0.0.1:8080 you@your-server
 2. Create the realm `fastapi-starter`, and in it the roles `superadmin`, `admin`, `collaborator` and `user`.
 3. Create the client `fastapi-backend`: *Client authentication* on, *Standard flow* only, *Valid redirect URIs* the frontend's callback URLs, exactly as in `KEYCLOAK_ALLOWED_REDIRECT_URIS`.
 4. In *Realm settings*, *Security defenses*, turn on *Brute force detection*.
-5. Copy the client's secret (*Clients*, `fastapi-backend`, *Credentials*) into `.env` as `KEYCLOAK_CLIENT_SECRET`.
+5. Copy the client's secret (*Clients*, `fastapi-backend`, *Credentials*) into `.env` as `KEYCLOAK_CLIENT_SECRET`. With a wrong one, `/auth/token` and `/auth/refresh` answer 502, and the log says `keycloak_client_rejected`.
 6. Create the users, with their roles.
 
 Do not import `docker/keycloak/realm-dev.json`: its user, password and secret are public.

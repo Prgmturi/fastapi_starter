@@ -187,21 +187,6 @@ class TestExchangeCode:
                 redirect_uri="http://test",
             )
 
-    async def test_invalid_credentials_401_raises_unauthorized(
-        self,
-        keycloak_client,
-        mock_http_client,
-    ):
-        """[EC] Keycloak returns 401 -> UnauthorizedError('Invalid credentials')."""
-        mock_http_client.post.return_value = _mock_response(401, {})
-
-        with pytest.raises(UnauthorizedError, match="Invalid credentials"):
-            await keycloak_client.exchange_code(
-                code="code",
-                code_verifier="v",
-                redirect_uri="http://test",
-            )
-
     async def test_unexpected_error_raises_external_service_error(
         self,
         keycloak_client,
@@ -319,6 +304,17 @@ def hangs_up(request: httpx.Request) -> httpx.Response:
     )
 
 
+def rejects_client(request: httpx.Request) -> httpx.Response:
+    """Keycloak's answer to a wrong client secret (tried on 2 November 2026)."""
+    return httpx.Response(
+        401,
+        json={
+            "error": "unauthorized_client",
+            "error_description": "Invalid client or Invalid client credentials",
+        },
+    )
+
+
 def web_page(request: httpx.Request) -> httpx.Response:
     """A proxy, or a wrong URL, can answer 200 with a web page."""
     return httpx.Response(200, html="<html>Sign in</html>")
@@ -401,6 +397,33 @@ class TestErrorContract:
             error_type="ReadTimeout",
             error="",
         )
+
+    @pytest.mark.parametrize("call", KEYCLOAK_CALLS.values(), ids=list(KEYCLOAK_CALLS))
+    async def test_rejected_client_raises_external_service_error(
+        self, keycloak_settings, call, monkeypatch
+    ):
+        """[EC] 401, a wrong client id or secret -> ExternalServiceError.
+
+        WHY: it was a 401 to the user, as if the code or the session were
+        not valid, with only a warning in the log. The frontend then sent
+        the user back to the login, which failed the same way (tried on
+        2 November 2026). The user cannot fix the setting: a 502, and an
+        error in the log naming what to check.
+        """
+        logger = MagicMock()
+        monkeypatch.setattr(client_module, "logger", logger)
+
+        transport = httpx.MockTransport(rejects_client)
+        async with httpx.AsyncClient(transport=transport) as http:
+            with pytest.raises(ExternalServiceError) as exc_info:
+                await call(KeycloakClient(keycloak_settings, http))
+
+        assert exc_info.value.message == "Error communicating with Keycloak"
+        (event,), fields = logger.error.call_args
+        assert event == "keycloak_client_rejected"
+        assert "KEYCLOAK_CLIENT_ID" in fields["hint"]
+        assert "KEYCLOAK_CLIENT_SECRET" in fields["hint"]
+        assert "test-secret" not in str(logger.mock_calls)
 
     @pytest.mark.parametrize("call", TOKEN_CALLS.values(), ids=list(TOKEN_CALLS))
     @pytest.mark.parametrize("network", [web_page, json_without_tokens])

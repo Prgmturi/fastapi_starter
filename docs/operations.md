@@ -26,7 +26,7 @@ Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) pr
   - The database: `"service": "database"` and `Retry-After: 5` ([database.md](database.md#when-postgres-cannot-be-reached)).
   - Keycloak, from `/auth/token` and `/auth/refresh`: `"service": "auth"` and `Retry-After: 5`. `/auth/logout` still answers 200 and clears the cookie.
   - Keycloak, for a token whose signing key is not in the cache: `"service": "auth"`, and `Retry-After` is `KEYCLOAK_JWKS_MIN_REFRESH_INTERVAL`, because the API does not fetch the keys again sooner.
-  - An answer from Keycloak that the API does not expect, such as a 500, is a 502 with `"service": "Keycloak"`.
+  - An answer from Keycloak that the API does not expect, such as a 500, is a 502 with `"service": "Keycloak"`. So is a 401 from Keycloak: it refuses the API's own client, and the log line `keycloak_client_rejected` says to check `KEYCLOAK_CLIENT_ID` and `KEYCLOAK_CLIENT_SECRET`.
 - Every response has an `X-Request-ID` header, a 500 from a route included, and the log lines of that request carry the same id. The exception is a 500 caused by a bug in a middleware: Starlette answers it outside every middleware, so it has none of their headers, and only its log lines carry the id.
 
 ## Health checks
