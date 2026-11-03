@@ -1,7 +1,7 @@
-"""What production refuses: values meant for development or examples.
+"""What production and staging refuse: values meant for development or examples.
 
-Settings runs these checks when APP_ENVIRONMENT=production and lists every
-problem in one error. Messages name the variable to change, never its
+Settings runs these checks in every environment but development, and lists
+every problem in one error. Messages name the variable to change, never its
 value.
 """
 

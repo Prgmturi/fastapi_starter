@@ -475,17 +475,24 @@ class TestErrorsShowNoValues:
 
 
 class TestProductionChecks:
-    """With APP_ENVIRONMENT=production, development values stop the startup.
+    """Outside development, development values stop the startup.
 
     WHY: the app started in production with debug on, Keycloak on http, an
     empty client secret, the password "postgres" and the development
-    trusted hosts. Each change below starts from a valid production
-    environment (production_env) and breaks one thing.
+    trusted hosts. Staging then still started with all of them (tried on 3
+    November 2026). Each change below starts from a valid deploy (deployed),
+    in staging and in production, and breaks one thing.
     """
 
-    def test_valid_production_environment_starts(self, production_env):
+    @pytest.fixture(params=["staging", "production"])
+    def deployed(self, request, production_env, monkeypatch) -> dict[str, str]:
+        """A valid deploy, in each environment the checks guard."""
+        monkeypatch.setenv("APP_ENVIRONMENT", request.param)
+        return {**production_env, "APP_ENVIRONMENT": request.param}
+
+    def test_valid_deploy_starts(self, deployed):
         """[HP] Real values everywhere: no error."""
-        assert Settings().app.environment == "production"
+        assert Settings().app.environment == deployed["APP_ENVIRONMENT"]
 
     def test_development_defaults_still_start(self):
         """[HP] The checks never block development."""
@@ -539,9 +546,7 @@ class TestProductionChecks:
             "forwarded-any",
         ],
     )
-    def test_development_value_refused(
-        self, production_env, monkeypatch, change, named
-    ):
+    def test_development_value_refused(self, deployed, monkeypatch, change, named):
         """[SEC] One development value -> an error that names its variable."""
         for name, value in change.items():
             if value is None:
@@ -554,18 +559,20 @@ class TestProductionChecks:
 
         assert named in str(exc_info.value)
 
-    def test_every_problem_in_one_error(self, monkeypatch):
+    @pytest.mark.parametrize("environment", ["staging", "production"])
+    def test_every_problem_in_one_error(self, monkeypatch, environment):
         """[HP] All development values at once -> one error listing them all.
 
         WHY: one error per restart would turn a deploy into a guessing game.
         """
-        monkeypatch.setenv("APP_ENVIRONMENT", "production")
+        monkeypatch.setenv("APP_ENVIRONMENT", environment)
         monkeypatch.setenv("APP_DEBUG", "true")
 
         with pytest.raises(pydantic.ValidationError) as exc_info:
             Settings()
 
         message = str(exc_info.value)
+        assert f"refusing to start in {environment}" in message
         for named in (
             "APP_DEBUG",
             "KEYCLOAK_PUBLIC_URL",
@@ -576,15 +583,15 @@ class TestProductionChecks:
         ):
             assert named in message
 
-    def test_error_shows_no_secret(self, production_env, monkeypatch):
+    def test_error_shows_no_secret(self, deployed, monkeypatch):
         """[SEC] The error names variables, never their values."""
         monkeypatch.setenv("APP_DEBUG", "true")
 
         with pytest.raises(pydantic.ValidationError) as exc_info:
             Settings()
 
-        assert production_env["DATABASE_PASSWORD"] not in str(exc_info.value)
-        assert production_env["KEYCLOAK_CLIENT_SECRET"] not in str(exc_info.value)
+        assert deployed["DATABASE_PASSWORD"] not in str(exc_info.value)
+        assert deployed["KEYCLOAK_CLIENT_SECRET"] not in str(exc_info.value)
 
 
 class TestServerSettings:

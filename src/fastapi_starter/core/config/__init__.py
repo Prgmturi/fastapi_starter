@@ -30,16 +30,17 @@ class Settings(BaseSettings):
     server: ServerSettings = Field(default_factory=ServerSettings)
 
     @model_validator(mode="after")
-    def refuse_development_values_in_production(self) -> "Settings":
+    def refuse_development_values_outside_development(self) -> "Settings":
+        # Staging too: it is reached from outside and often holds real data.
         # All problems in one error: a deploy should not need one restart
         # per mistake
-        if self.app.is_production:
+        if not self.app.is_development:
             problems = production_problems(
                 self.app, self.auth_cookie, self.database, self.keycloak, self.server
             )
             if problems:
                 raise ValueError(
-                    "refusing to start in production:\n"
+                    f"refusing to start in {self.app.environment}:\n"
                     + "\n".join(f"- {problem}" for problem in problems)
                 )
         return self
