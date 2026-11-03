@@ -268,3 +268,16 @@ class TestCors:
 
         exposed = response.headers["access-control-expose-headers"]
         assert "x-request-id" in exposed.lower()
+
+    async def test_frontend_can_read_retry_after(self, client):
+        """[HP] CORS exposes Retry-After, which a 503 sets.
+
+        WHY: Retry-After is not among the headers a browser always shows,
+        so a frontend on another origin could not read when to retry.
+        """
+        response = await client.get(
+            "/health/live", headers={"Origin": "http://localhost:3000"}
+        )
+
+        exposed = response.headers["access-control-expose-headers"]
+        assert "retry-after" in exposed.lower()

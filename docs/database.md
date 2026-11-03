@@ -106,3 +106,7 @@ The pool settings have bounds in every environment, because SQLAlchemy reads som
 | `DATABASE_CONNECT_TIMEOUT`, `DATABASE_COMMAND_TIMEOUT` | above 0 | seconds to connect, and seconds a query may run: a slower query answers 500 |
 
 A value out of range stops the startup, with an error that names the variable. `DATABASE_ECHO=true` writes every query to the logs with its values, so production refuses it.
+
+## When Postgres cannot be reached
+
+A route that needs a new connection answers 503 when Postgres refuses the connection, does not answer within `DATABASE_CONNECT_TIMEOUT`, or its host is unknown. The response has `"service": "database"` and `Retry-After: 5`, because the same request can succeed once the database is back. The log names the type of the error in a `database_unavailable` line, with no traceback. A query slower than `DATABASE_COMMAND_TIMEOUT` is still a 500: the query is the problem, not the database.

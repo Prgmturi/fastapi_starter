@@ -1,13 +1,49 @@
-from sqlalchemy import text
+from typing import Any
+
+from sqlalchemy import event, text
+from sqlalchemy.engine import Dialect
+from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import ConnectionPoolEntry
 
 from fastapi_starter.core.config.database import DatabaseSettings
 from fastapi_starter.core.database.url import database_url
+from fastapi_starter.core.exceptions import ServiceUnavailableError
+from fastapi_starter.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+# Retry-After of the 503 while the database cannot be reached: a few
+# seconds, so that clients do not retry in a tight loop.
+RETRY_AFTER_SECONDS = 5
+
+
+def connect_or_unavailable(
+    dialect: Dialect,
+    conn_rec: ConnectionPoolEntry,
+    cargs: tuple[Any, ...],
+    cparams: dict[str, Any],
+) -> DBAPIConnection:
+    """Open a connection. If Postgres cannot be reached: a 503.
+
+    asyncpg raises an OSError when the connection is refused or the host
+    is unknown, and a TimeoutError, also an OSError, when Postgres does not
+    answer within connect_timeout. SQLAlchemy does not wrap them, so each
+    request got a 500 and logged a traceback. Only the opening of a
+    connection passes here: an OSError raised by a route stays a 500.
+    """
+    try:
+        return dialect.connect(*cargs, **cparams)
+    except OSError as e:
+        logger.error("database_unavailable", error_type=type(e).__name__, error=str(e))
+        raise ServiceUnavailableError(
+            "database", retry_after=RETRY_AFTER_SECONDS
+        ) from e
 
 
 class DatabaseManager:
@@ -74,6 +110,9 @@ class DatabaseManager:
             },
         )
 
+        # Every new connection of the pool opens through it
+        event.listen(self._engine.sync_engine, "do_connect", connect_or_unavailable)
+
         self._session_factory = async_sessionmaker(
             bind=self._engine,
             class_=AsyncSession,
@@ -102,7 +141,8 @@ class DatabaseManager:
 
         Raises:
             RuntimeError: If not connected.
-            SQLAlchemyError: If database is unreachable.
+            ServiceUnavailableError: If the database cannot be reached.
+            SQLAlchemyError: If the database answers with an error.
         """
         async with self.session_factory() as session:
             await session.execute(text("SELECT 1"))

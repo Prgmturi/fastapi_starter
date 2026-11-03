@@ -179,8 +179,8 @@ def register_middleware(app: FastAPI, settings: ServerSettings) -> None:
         allow_headers=settings.cors_allow_headers,
         # The browser hides from JavaScript the headers CORS does not
         # expose: without this a frontend cannot show the request id of
-        # a failed request.
-        expose_headers=[REQUEST_ID_HEADER],
+        # a failed request, or read when to retry a 503.
+        expose_headers=[REQUEST_ID_HEADER, "Retry-After"],
     )
 
     app.add_middleware(SecureHeadersMiddleware)

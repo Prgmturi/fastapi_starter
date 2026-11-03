@@ -12,13 +12,16 @@ import contextlib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from fastapi_starter.core.config.database import DatabaseSettings
 from fastapi_starter.core.database.dependencies import (
     DbSession,
     get_db_manager,
     get_db_session,
 )
+from fastapi_starter.core.database.manager import DatabaseManager
 
 
 class TestGetDbManager:
@@ -163,3 +166,36 @@ class TestDbSessionInRequest:
 
         assert response.status_code == 500
         session.rollback.assert_awaited_once()
+
+
+class TestUnreachableDatabaseInRequest:
+    """A route that uses DbSession while Postgres refuses connections.
+
+    WHY: every such request answered 500 "An unexpected error occurred."
+    (tried on 3 November 2026). A 503 tells the client to send it again
+    later, and Retry-After when.
+    """
+
+    @pytest.fixture
+    async def orders_app(self, app, closed_port):
+        """The test app, a real manager on a port where nothing listens."""
+        manager = DatabaseManager(DatabaseSettings(host="127.0.0.1", port=closed_port))
+        await manager.connect()
+        app.dependency_overrides[get_db_manager] = lambda: manager
+
+        @app.get("/orders")
+        async def list_orders(session: DbSession) -> list[int]:
+            await session.execute(text("SELECT 1"))
+            return []
+
+        yield app
+        await manager.disconnect()
+
+    async def test_answers_503_with_retry_after(self, orders_app, client):
+        """[EC] Postgres down -> 503 problem, service database, Retry-After."""
+        response = await client.get("/orders")
+
+        assert response.status_code == 503
+        assert response.headers["content-type"] == "application/problem+json"
+        assert response.headers["retry-after"] == "5"
+        assert response.json()["service"] == "database"
