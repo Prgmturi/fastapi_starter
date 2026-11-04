@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.9.0](https://github.com/Prgmturi/fastapi_starter/compare/v0.8.3...v0.9.0) (2026-11-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* the settings are checked everywhere but development.
+    - with APP_ENVIRONMENT=staging the app refuses to start while a development or example value is left, as production does.
+    - staging and production refuse to start while SERVER_CORS_ORIGINS is unset or lists an origin on localhost or 127.0.0.1: list only the frontend's origins.
+    - the image runs as production when APP_ENVIRONMENT is unset: set APP_ENVIRONMENT=development to run it as development, as compose.yaml does.
+* RoleEnum.all_roles(), RoleEnum.staff_roles() and User.is_staff() are gone, and features/auth/schemas.py no longer re-exports TokenResponse: import it from core/auth/schemas.py. For the roles, list(RoleEnum) gives them all, and user.has_any_role([RoleEnum.SUPERADMIN, RoleEnum.ADMIN]) replaces is_staff().
+
+### Features
+
+* refuse development settings everywhere but development ([#86](https://github.com/Prgmturi/fastapi_starter/issues/86)) ([b36342c](https://github.com/Prgmturi/fastapi_starter/commit/b36342cdc15ea95c5bb024037118030714a92ecf))
+
+
+### Code Refactoring
+
+* check the architecture rules, and drop the code nothing uses ([#84](https://github.com/Prgmturi/fastapi_starter/issues/84)) ([abc1f8d](https://github.com/Prgmturi/fastapi_starter/commit/abc1f8d3483ceabaed15a7adf9399dddc02bad7a))
+
 ## [0.8.3](https://github.com/Prgmturi/fastapi_starter/compare/v0.8.2...v0.8.3) (2026-11-02)
 
 
