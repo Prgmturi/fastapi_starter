@@ -54,9 +54,12 @@ class OAuthProvider(Protocol):
 
     The methods that call the provider raise only:
     - UnauthorizedError when the provider rejects the code or the refresh token
-    - ExternalServiceError when the provider cannot be reached or answers in
-      an unexpected way, with a message that names no URL or library error
-    No library-specific exception leaks out: callers catch these two only.
+    - ServiceUnavailableError when the provider cannot be reached: the same
+      call can succeed later
+    - ExternalServiceError when the provider rejects the API's own client
+      credentials, or answers in an unexpected way
+    Their messages name no URL or library error. No library-specific
+    exception leaks out: callers catch these three only.
     """
 
     def build_authorization_url(

@@ -41,7 +41,8 @@ Frontend (browser)                          API                         Keycloak
 | Answer | What it means | What the frontend does |
 |---|---|---|
 | 401 from a route | The access token expired, or is not valid | `POST /auth/refresh` once, then repeat the call. If the refresh answers 401 too, log in again |
-| 503 | Keycloak is unreachable, and the API cannot check the key of this token | Keep the user logged in, and try again after a few seconds |
+| 503 | The database or Keycloak cannot be reached, from a route or from `/auth/refresh` | Keep the user logged in, and try again after the seconds in `Retry-After` |
+| 502 from `/auth/refresh` | Keycloak answered in a way the API does not expect, or refused the API's own client | A fault of the server: show an error. A new login fails the same way |
 | 403 `Permission denied` | The token is valid, the role is missing | Say so: a refresh does not help |
 | 403 `Origin not allowed`, from `/auth/refresh` or `/auth/logout` | The origin of the page is not in `SERVER_CORS_ORIGINS` | A setting of the server to fix |
 

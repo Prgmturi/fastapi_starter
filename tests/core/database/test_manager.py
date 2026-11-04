@@ -1,22 +1,29 @@
 """Tests for DatabaseManager — connection lifecycle and health check.
 
 Module under test: src/fastapi_starter/core/database/manager.py
-Layer: Infrastructure adapter (mock SQLAlchemy engine creation)
+Layer: Infrastructure adapter (real engines: they connect lazily)
 
 WHY these tests exist: DatabaseManager manages the connection lifecycle.
 We verify connect/disconnect idempotency, property guards (raise before
-connect), and health check delegation.
+connect), health check delegation, and what an unreachable database
+becomes.
 """
 
 import asyncio
 import time
-from collections.abc import AsyncIterator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
+import asyncpg
 import pytest
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from fastapi_starter.core.config.database import DatabaseSettings
-from fastapi_starter.core.database.manager import DatabaseManager
+from fastapi_starter.core.database import manager as manager_module
+from fastapi_starter.core.database.manager import (
+    DatabaseManager,
+    connect_or_unavailable,
+)
+from fastapi_starter.core.exceptions import ServiceUnavailableError
 
 
 @pytest.fixture
@@ -71,23 +78,19 @@ class TestConnect:
     We verify that engine and session_factory are set after connect().
     """
 
-    @patch("fastapi_starter.core.database.manager.create_async_engine")
-    async def test_creates_engine_and_session_factory(
-        self,
-        mock_create_engine,
-        db_manager,
-    ):
+    async def test_creates_engine_and_session_factory(self, db_manager):
         """[HP] After connect(), engine and session_factory are not None."""
-        mock_engine = MagicMock()
-        mock_create_engine.return_value = mock_engine
-
         await db_manager.connect()
+        try:
+            assert db_manager._engine is not None
+            assert db_manager._session_factory is not None
+        finally:
+            await db_manager.disconnect()
 
-        mock_create_engine.assert_called_once()
-        assert db_manager._engine is not None
-        assert db_manager._session_factory is not None
-
-    @patch("fastapi_starter.core.database.manager.create_async_engine")
+    @patch(
+        "fastapi_starter.core.database.manager.create_async_engine",
+        wraps=create_async_engine,
+    )
     async def test_idempotent_when_already_connected(
         self,
         mock_create_engine,
@@ -97,10 +100,9 @@ class TestConnect:
 
         WHY: Prevents resource leaks if lifespan logic calls connect() twice.
         """
-        mock_create_engine.return_value = MagicMock()
-
         await db_manager.connect()
         await db_manager.connect()
+        await db_manager.disconnect()
 
         mock_create_engine.assert_called_once()
 
@@ -113,36 +115,106 @@ class TestConnectTimeout:
     request that needs a new connection.
     """
 
-    @pytest.fixture
-    async def silent_port(self) -> AsyncIterator[int]:
-        """A local port that accepts TCP connections and never answers."""
-
-        async def never_answer(reader, writer):
-            await reader.read()  # until the client gives up and closes
-            writer.close()
-
-        server = await asyncio.start_server(never_answer, "127.0.0.1", 0)
-        yield server.sockets[0].getsockname()[1]
-        server.close_clients()
-        server.close()
-        await server.wait_closed()
-
     async def test_unresponsive_host_fails_within_connect_timeout(self, silent_port):
-        """[EC] connect_timeout=0.5 -> TimeoutError after about half a second."""
+        """[EC] connect_timeout=0.5 -> 503 after about half a second."""
         manager = DatabaseManager(
             DatabaseSettings(host="127.0.0.1", port=silent_port, connect_timeout=0.5)
         )
         await manager.connect()
         started = time.monotonic()
         try:
-            with pytest.raises(TimeoutError):
-                # Stops the test if connect_timeout does not reach asyncpg
+            with pytest.raises(ServiceUnavailableError) as raised:
+                # Stops the test if connect_timeout does not reach asyncpg:
+                # that TimeoutError would have no cause
                 async with asyncio.timeout(5):
                     await manager.health_check()
         finally:
             await manager.disconnect()
 
         assert time.monotonic() - started < 2
+        assert isinstance(raised.value.__cause__, TimeoutError)
+
+
+class TestUnreachableDatabase:
+    """Postgres refuses the connection, or does not answer: a 503.
+
+    WHY: asyncpg raises OSErrors that SQLAlchemy does not wrap. A route
+    that needed a connection answered 500 "An unexpected error occurred."
+    and logged a traceback of about 190 lines, at each request, and the
+    client could not tell that the same request can succeed once the
+    database is back (tried on 3 November 2026).
+    """
+
+    @pytest.fixture
+    def logger(self, monkeypatch):
+        """Records the module's log calls.
+
+        WHY a fake: module loggers are cached on first use
+        (cache_logger_on_first_use), so capture_logs cannot see them.
+        """
+        fake = MagicMock()
+        monkeypatch.setattr(manager_module, "logger", fake)
+        return fake
+
+    @pytest.fixture
+    async def refused(self, closed_port) -> ServiceUnavailableError:
+        """What health_check() raises with nothing listening on the port."""
+        manager = DatabaseManager(DatabaseSettings(host="127.0.0.1", port=closed_port))
+        await manager.connect()
+        try:
+            with pytest.raises(ServiceUnavailableError) as raised:
+                await manager.health_check()
+        finally:
+            await manager.disconnect()
+        return raised.value
+
+    async def test_refused_connection_is_unavailable(self, refused):
+        """[EC] Connection refused -> 503 for the database, the cause kept."""
+        assert refused.status_code == 503
+        assert refused.details == {"service": "database"}
+        assert isinstance(refused.__cause__, ConnectionRefusedError)
+
+    async def test_says_when_to_retry(self, refused):
+        """[EC] The 503 carries Retry-After, in seconds."""
+        assert refused.headers == {"Retry-After": "5"}
+
+    async def test_logs_one_line_with_the_cause(self, logger, closed_port):
+        """[EC] One error line naming the type, instead of a traceback."""
+        manager = DatabaseManager(DatabaseSettings(host="127.0.0.1", port=closed_port))
+        await manager.connect()
+        try:
+            with pytest.raises(ServiceUnavailableError):
+                await manager.health_check()
+        finally:
+            await manager.disconnect()
+
+        logger.error.assert_called_once_with(
+            "database_unavailable", error_type="ConnectionRefusedError", error=ANY
+        )
+
+    def test_network_error_of_the_listener_is_unavailable(self):
+        """[EC] The listener alone: an OSError at connect -> the 503.
+
+        WHY a direct call too: SQLAlchemy runs the listener in a greenlet,
+        and coverage does not see the lines it runs there.
+        """
+        dialect = MagicMock()
+        dialect.connect.side_effect = ConnectionRefusedError("Connect call failed")
+
+        with pytest.raises(ServiceUnavailableError) as raised:
+            connect_or_unavailable(dialect, MagicMock(), (), {})
+
+        assert isinstance(raised.value.__cause__, ConnectionRefusedError)
+
+    def test_other_connect_errors_pass_unchanged(self):
+        """[EC] A wrong password stays itself: a setting to fix, not to retry."""
+        dialect = MagicMock()
+        dialect.connect.side_effect = asyncpg.exceptions.InvalidPasswordError(
+            'password authentication failed for user "app"'
+        )
+
+        with pytest.raises(asyncpg.exceptions.InvalidPasswordError):
+            connect_or_unavailable(dialect, MagicMock(), (), {})
 
 
 class TestDisconnect:
@@ -151,20 +223,13 @@ class TestDisconnect:
     WHY: Called at shutdown. Must dispose engine and clear references.
     """
 
-    @patch("fastapi_starter.core.database.manager.create_async_engine")
-    async def test_disposes_engine_and_clears_references(
-        self,
-        mock_create_engine,
-        db_manager,
-    ):
+    async def test_disposes_engine_and_clears_references(self, db_manager):
         """[HP] After disconnect(), engine and session_factory are None."""
-        mock_engine = AsyncMock()
-        mock_create_engine.return_value = mock_engine
-
         await db_manager.connect()
-        await db_manager.disconnect()
+        with patch.object(AsyncEngine, "dispose", autospec=True) as dispose:
+            await db_manager.disconnect()
 
-        mock_engine.dispose.assert_called_once()
+        dispose.assert_awaited_once()
         assert db_manager._engine is None
         assert db_manager._session_factory is None
 
@@ -198,12 +263,8 @@ class TestHealthCheck:
     the session factory and executes a query.
     """
 
-    @patch("fastapi_starter.core.database.manager.create_async_engine")
-    async def test_returns_true_on_success(self, mock_create_engine, db_manager):
+    async def test_returns_true_on_success(self, db_manager):
         """[HP] SELECT 1 succeeds -> returns True."""
-        mock_engine = MagicMock()
-        mock_create_engine.return_value = mock_engine
-
         mock_session = AsyncMock()
         mock_session.execute = AsyncMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
@@ -211,8 +272,10 @@ class TestHealthCheck:
 
         await db_manager.connect()
         db_manager._session_factory = MagicMock(return_value=mock_session)
-
-        result = await db_manager.health_check()
+        try:
+            result = await db_manager.health_check()
+        finally:
+            await db_manager.disconnect()
 
         assert result is True
         mock_session.execute.assert_called_once()

@@ -79,12 +79,16 @@ class ServiceUnavailableError(AppExceptionError):
     """A service the request needs is unreachable: retry later (503).
 
     Unlike ExternalServiceError (502), the same request can succeed once
-    the service is back.
+    the service is back. retry_after, in seconds, becomes the Retry-After
+    header: when to try again.
     """
 
-    def __init__(self, service: str) -> None:
+    def __init__(self, service: str, retry_after: int | None = None) -> None:
         super().__init__(
             message="Service temporarily unavailable",
             status_code=HTTPStatus.SERVICE_UNAVAILABLE,
             details={"service": service},
+        )
+        self.headers = (
+            {"Retry-After": str(retry_after)} if retry_after is not None else {}
         )

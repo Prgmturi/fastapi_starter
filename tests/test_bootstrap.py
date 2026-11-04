@@ -40,6 +40,7 @@ from fastapi_starter.core.config import (
 )
 from fastapi_starter.core.database import DatabaseManager
 from fastapi_starter.core.error_middleware import UnhandledExceptionMiddleware
+from fastapi_starter.core.exceptions import ServiceUnavailableError
 from fastapi_starter.core.logging import LoggingMiddleware
 from fastapi_starter.core.security import SecureHeadersMiddleware
 from fastapi_starter.main import create_app, lifespan
@@ -96,6 +97,34 @@ class TestInitDatabase:
             await init_database(state, settings)
 
         mock_manager.disconnect.assert_called_once()
+
+    @patch("fastapi_starter.bootstrap.DatabaseManager")
+    async def test_failure_logs_the_cause_without_traceback(
+        self, mock_database_manager, monkeypatch
+    ):
+        """[EC] One error line, naming the cause of the 503.
+
+        WHY: logger.exception printed the traceback, and uvicorn printed it
+        again when the startup failed: 336 lines with Postgres down (tried
+        on 3 November 2026). uvicorn still prints it once.
+        """
+        logger = MagicMock()
+        monkeypatch.setattr("fastapi_starter.bootstrap.logger", logger)
+        unavailable = ServiceUnavailableError("database", retry_after=5)
+        unavailable.__cause__ = ConnectionRefusedError(111, "Connection refused")
+        mock_manager = AsyncMock()
+        mock_manager.health_check = AsyncMock(side_effect=unavailable)
+        mock_database_manager.return_value = mock_manager
+
+        with pytest.raises(ServiceUnavailableError):
+            await init_database(State(), DatabaseSettings())
+
+        logger.error.assert_called_once_with(
+            "database_connection_failed",
+            error_type="ConnectionRefusedError",
+            error="[Errno 111] Connection refused",
+        )
+        logger.exception.assert_not_called()
 
     @patch("fastapi_starter.bootstrap.DatabaseManager")
     async def test_logs_the_url_without_the_password(
@@ -251,6 +280,42 @@ class TestInitAuthService:
 
         assert not hasattr(state, "auth_service")
         assert not http_client.is_closed
+
+    @patch("fastapi_starter.bootstrap.AuthService")
+    @patch("fastapi_starter.bootstrap.KeycloakClaimExtractor")
+    @patch("fastapi_starter.bootstrap.JWKSTokenDecoder")
+    @patch("fastapi_starter.bootstrap.JWKSManager")
+    async def test_jwks_refresh_failure_logs_one_line(
+        self,
+        mock_jwks_manager,
+        mock_decoder,
+        mock_extractor,
+        mock_auth_service,
+        http_client,
+        monkeypatch,
+    ):
+        """[EC] One error line, without traceback: uvicorn prints it.
+
+        WHY: the traceback came twice, from here and from uvicorn. The
+        jwks_refresh_failed line before this one names the cause.
+        """
+        logger = MagicMock()
+        monkeypatch.setattr("fastapi_starter.bootstrap.logger", logger)
+        mock_jwks = AsyncMock()
+        mock_jwks.refresh_keys = AsyncMock(
+            side_effect=ServiceUnavailableError("auth", retry_after=30)
+        )
+        mock_jwks_manager.return_value = mock_jwks
+
+        with pytest.raises(ServiceUnavailableError):
+            await init_auth_service(State(), KeycloakSettings(), http_client)
+
+        logger.error.assert_called_once_with(
+            "auth_service_init_failed",
+            error_type="ServiceUnavailableError",
+            error="Service temporarily unavailable",
+        )
+        logger.exception.assert_not_called()
 
 
 class TestInitOAuthProvider:

@@ -47,6 +47,16 @@ logger = get_logger(__name__)
 CleanupFn = Callable[[], Awaitable[Any]]
 
 
+def _log_start_failure(event: str, error: Exception) -> None:
+    """One error line for a service that does not start.
+
+    No traceback: uvicorn prints it when the startup fails. The line names
+    the cause of a wrapped error, as the readiness log does.
+    """
+    cause = error.__cause__ or error
+    logger.error(event, error_type=type(cause).__name__, error=str(cause))
+
+
 async def start_services(
     app_state: State, settings: Settings, services: list[tuple[str, CleanupFn]]
 ) -> None:
@@ -78,8 +88,8 @@ async def init_database(
 
     try:
         await db_manager.health_check()
-    except Exception:
-        logger.exception("database_connection_failed")
+    except Exception as e:
+        _log_start_failure("database_connection_failed", e)
         await db_manager.disconnect()
         raise
 
@@ -124,8 +134,8 @@ async def init_auth_service(
 
     try:
         await jwks_manager.refresh_keys()
-    except Exception:
-        logger.exception("auth_service_init_failed")
+    except Exception as e:
+        _log_start_failure("auth_service_init_failed", e)
         raise
 
     logger.info(
@@ -179,8 +189,8 @@ def register_middleware(app: FastAPI, settings: ServerSettings) -> None:
         allow_headers=settings.cors_allow_headers,
         # The browser hides from JavaScript the headers CORS does not
         # expose: without this a frontend cannot show the request id of
-        # a failed request.
-        expose_headers=[REQUEST_ID_HEADER],
+        # a failed request, or read when to retry a 503.
+        expose_headers=[REQUEST_ID_HEADER, "Retry-After"],
     )
 
     app.add_middleware(SecureHeadersMiddleware)

@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from fastapi_starter.core.config import Settings
+from fastapi_starter.core.exceptions import ServiceUnavailableError
 from fastapi_starter.features.health import router as health_router_module
 
 
@@ -238,6 +239,25 @@ class TestReadinessHidesDetails:
             "readiness_check_failed",
             check="database",
             error=f"RuntimeError: {self.ERROR}",
+        )
+
+    async def test_cause_of_a_wrapped_error_goes_to_the_log(
+        self, client, mock_db_provider, logger
+    ):
+        """[EC] The 503 of an unreachable database -> the log names its cause.
+
+        WHY: the error itself says only "Service temporarily unavailable".
+        """
+        error = ServiceUnavailableError("database")
+        error.__cause__ = ConnectionRefusedError("Connect call failed")
+        mock_db_provider.health_check.side_effect = error
+
+        await client.get("/health/ready")
+
+        logger.warning.assert_called_once_with(
+            "readiness_check_failed",
+            check="database",
+            error="ConnectionRefusedError: Connect call failed",
         )
 
     async def test_healthy_checks_log_nothing(self, client, logger):

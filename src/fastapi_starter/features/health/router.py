@@ -63,7 +63,10 @@ async def run_check(name: str, check: Callable[[], Awaitable[bool]]) -> CheckRes
     except TimeoutError:
         error = f"timed out after {CHECK_TIMEOUT_SECONDS} s"
     except Exception as e:
-        error = f"{type(e).__name__}: {e}"
+        # The cause of a wrapped error: the 503 of an unreachable database
+        # says only "Service temporarily unavailable"
+        cause = e.__cause__ or e
+        error = f"{type(cause).__name__}: {cause}"
     else:
         if ready:
             return CheckResult(status="healthy")

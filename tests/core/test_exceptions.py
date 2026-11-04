@@ -201,6 +201,21 @@ class TestServiceUnavailableError:
 
         assert exc.details == {"service": "auth"}
 
+    def test_retry_after_becomes_a_header(self):
+        """[HP] retry_after=5 -> Retry-After: 5 on the response.
+
+        WHY: the client learns when the same request can succeed.
+        """
+        exc = ServiceUnavailableError("database", retry_after=5)
+
+        assert exc.headers == {"Retry-After": "5"}
+
+    def test_no_retry_after_no_header(self):
+        """[EC] Without retry_after the response has no Retry-After."""
+        exc = ServiceUnavailableError("auth")
+
+        assert exc.headers == {}
+
 
 class TestExceptionHierarchy:
     """All exceptions inherit from AppExceptionError.

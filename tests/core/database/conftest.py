@@ -1,5 +1,8 @@
 """Database-specific fixtures: mock session, mock manager, test repository."""
 
+import asyncio
+import socket
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -40,3 +43,26 @@ def mock_db_manager():
 def test_repository(mock_session) -> FakeRepository:
     """FakeRepository wired with a mock session for CRUD tests."""
     return FakeRepository(mock_session)
+
+
+@pytest.fixture
+def closed_port() -> int:
+    """A local port where nothing listens: a connection is refused."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+@pytest.fixture
+async def silent_port() -> AsyncIterator[int]:
+    """A local port that accepts TCP connections and never answers."""
+
+    async def never_answer(reader, writer):
+        await reader.read()  # until the client gives up and closes
+        writer.close()
+
+    server = await asyncio.start_server(never_answer, "127.0.0.1", 0)
+    yield server.sockets[0].getsockname()[1]
+    server.close_clients()
+    server.close()
+    await server.wait_closed()
