@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/Prgmturi/fastapi_starter/compare/v0.9.0...v0.9.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* answer and log clearly when Postgres or Keycloak fail ([#87](https://github.com/Prgmturi/fastapi_starter/issues/87)) ([26b025d](https://github.com/Prgmturi/fastapi_starter/commit/26b025d5b44f8de2c4bcf13a62b56ba842191448))
+
 ## [0.9.0](https://github.com/Prgmturi/fastapi_starter/compare/v0.8.3...v0.9.0) (2026-11-03)
 
 
