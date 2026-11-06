@@ -7,20 +7,31 @@ The tools, the tests, the checks of CI, the releases, and the care taken with wh
 - **Docker**, for the stack of `compose.yaml`.
 - **[uv](https://docs.astral.sh/uv/) 0.13 or later.** An older uv stops with an error in this project: run `uv self update`. uv installs the Python of `.python-version`, 3.13, when the machine does not have it.
 
-## Run the app on your machine
+## Prepare the machine
 
-With Postgres and Keycloak from the stack:
+The stack of `compose.yaml` needs no `.env`, but every command that runs on the machine does. Without it Alembic and the app look for Postgres on port 5432 with the user `postgres`, while the stack publishes it on 5433 with the user `appbase`. `.env.example` holds the values of the stack, as the host sees them, and the `TEST_DATABASE_*` of the integration tests:
 
 ```bash
 uv sync
 uv run pre-commit install         # ruff, gitleaks and commitlint on every commit, as CI runs them
-cp .env.example .env              # the values of the stack, as the host sees them
+cp .env.example .env
+docker compose up --wait db
+uv run alembic upgrade head       # a new migration starts from the last one
+docker compose exec db createdb -U appbase appbase_test   # once: -U is DATABASE_USER
+```
+
+## Run the app on the machine
+
+With Postgres and Keycloak from the stack:
+
+```bash
+docker compose stop api           # if the whole stack is up: its container holds port 8000
 docker compose up --wait db keycloak
 uv run alembic upgrade head
 uv run uvicorn fastapi_starter.main:create_app --factory --reload
 ```
 
-Then open http://localhost:8000/docs.
+Then open http://localhost:8000/docs. `docker compose up --wait api` starts the container again.
 
 ## Tests
 
@@ -34,21 +45,16 @@ uv run pytest -m e2e                       # a login through the running stack
 ```
 
 - **Unit tests** are async, and outside `tests/integration/` they use stubs (`AsyncMock`): no database and no Keycloak. The root `conftest.py` provides the app, an HTTP client, mock services, and users with different roles.
-- **They ignore your machine.** Tests never read your local `.env`, nor the `APP_*`, `KEYCLOAK_*` and other variables you export: an autouse fixture in `tests/conftest.py` switches both off. A test that needs some settings builds them and passes them to `create_app(settings)`.
+- **They ignore the machine.** Tests never read the local `.env`, nor the exported `APP_*`, `KEYCLOAK_*` and other variables: an autouse fixture in `tests/conftest.py` switches both off. A test that needs some settings builds them and passes them to `create_app(settings)`.
 - **CI runs the suite twice**, the second time with a `.env` and variables of a production server, and fails when coverage drops below `fail_under` in `pyproject.toml`.
 
 ### Integration tests
 
 The tests in `tests/integration/` run on a real Postgres, for what a mock cannot show, such as a commit that the database refuses.
 
-- `uv run pytest` leaves them out, even when you name their file; `-m integration` runs only them.
+- `uv run pytest` leaves them out, even with their file named on the command line; `-m integration` runs only them.
 - They read `TEST_DATABASE_*`, exported or in `.env` (see `.env.example`), and no other setting.
-- They refuse a database whose name does not end in `_test`, because they create and drop tables in it. Create it once, in the `db` service of the stack:
-
-  ```bash
-  docker compose exec db createdb -U appbase appbase_test   # -U: DATABASE_USER
-  ```
-
+- They refuse a database whose name does not end in `_test`, because they create and drop tables in it. [Prepare the machine](#prepare-the-machine) creates it, once.
 - Before the first test, a fixture brings that database to the last migration (`alembic upgrade head`), as CI does: no command is needed.
 - CI runs them in a job of its own, with its own Postgres. They do not count towards the coverage threshold.
 
@@ -62,7 +68,7 @@ The stack takes its ports from `SERVER_PORT`, `KEYCLOAK_PORT` and `DATABASE_PORT
 
 | Job | What it does |
 |---|---|
-| `ci` | ruff, the format, mypy, the import contracts ([architecture.md](architecture.md)), the unit tests with coverage, then the tests again in a production-like environment |
+| `ci` | ruff, the format, mypy, the import contracts ([What checks each rule](architecture.md#what-checks-each-rule)), the unit tests with coverage, then the tests again in a production-like environment |
 | Integration tests | The migrations up, checked against the models, down and up again; then the integration tests, on a Postgres of their own |
 | Build container image | The image of `docker/Dockerfile`, a smoke test of the app inside it, the check that the app cannot change its own code, and the Grype scan |
 | Log in through the whole stack | `docker compose up` of the stack, then the end-to-end test |

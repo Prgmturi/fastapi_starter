@@ -1,10 +1,10 @@
 # Operations
 
-What the API says when something goes wrong, how a container shows that it is healthy, what the logs look like, and every setting.
+What the API says when something goes wrong, how a container shows that it is healthy, what the logs look like, and every setting. Why errors take this shape: [When something fails](architecture.md#when-something-fails).
 
 ## Errors
 
-Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem document, sent as `application/problem+json`:
+An error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem document, sent as `application/problem+json`:
 
 ```json
 {
@@ -19,8 +19,9 @@ Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) pr
 
 - `status`, `title` and `detail` are always there. `title` is the standard phrase of the status code; `detail` explains what went wrong in this request.
 - An invalid request (422) adds `errors`, one entry for each invalid field: `{"loc": ["query", "limit"], "msg": "Input should be a valid integer, …", "type": "int_parsing"}`. The rejected value is not sent back.
-- To return an error from your code, raise a subclass of `AppExceptionError` from `core/exceptions.py`: `NotFoundError`, `ConflictError`, `ForbiddenError`, `UnauthorizedError`, and the others. Its `details` become extra members, like `resource` and `identifier` above.
+- To return an error from the code, raise a subclass of `AppExceptionError` from `core/exceptions.py`: `NotFoundError`, `ConflictError`, `ForbiddenError`, `UnauthorizedError`, and the others. Its `details` become extra members, like `resource` and `identifier` above.
 - OpenAPI documents this format as the `default` response of every route.
+- Two answers are plain text instead, because they come from middleware the app does not write: `Invalid host header` (400, a `Host` not in `SERVER_TRUSTED_HOSTS`) and `Disallowed CORS origin` (400, a preflight from an origin not in `SERVER_CORS_ORIGINS`).
 - An unexpected error answers only `"An unexpected error occurred."`. The cause and the traceback go to the logs, also with `APP_DEBUG=true`.
 - When a service cannot be reached, the route answers 503 with `Retry-After`, in seconds: the same request can succeed later.
   - The database: `"service": "database"` and `Retry-After: 5` ([database.md](database.md#when-postgres-cannot-be-reached)).
@@ -43,7 +44,7 @@ Every line the process writes has one format: JSON outside development, with the
 - **The proxy sets the id.** It must write the header itself, over the client's, or the client picks the id. With Nginx: `proxy_set_header X-Request-ID $request_id;`, and `$request_id` in its `log_format`. CORS exposes the header, so a frontend on another origin can read it, for example to show it with an error.
 - **Who made the request.** `request_started` names the client, with `client_ip` and `user_agent`. The query string is not logged, because it can hold personal data or tokens.
 - **Health probes are quiet.** The lines of the requests to `/health/...` are DEBUG, since Docker's `HEALTHCHECK` alone would write two lines every 30 seconds.
-- **Behind a proxy.** uvicorn takes the client's address from `X-Forwarded-For` only on connections from an address in `SERVER_FORWARDED_ALLOW_IPS`, by default `["127.0.0.1"]`. In a container the proxy has another address: set it to that address, or to its network (`["172.18.0.0/16"]`), or `client_ip` is always the proxy's. Never `*` while the port can be reached without the proxy: anyone could choose the address the logs show, and production refuses it. The image's command passes the setting to uvicorn; the uvicorn command of development reads uvicorn's own `FORWARDED_ALLOW_IPS` variable instead.
+- **Behind a proxy.** uvicorn takes the client's address from `X-Forwarded-For` only on connections from an address in `SERVER_FORWARDED_ALLOW_IPS`, by default `["127.0.0.1"]`. In a container the proxy has another address: set it to that address, or to its network (`["172.18.0.0/16"]`), or `client_ip` is always the proxy's. Never `*` while the port can be reached without the proxy: anyone could choose the address the logs show, and staging and production refuse it. The image's command passes the setting to uvicorn; the uvicorn command of development reads uvicorn's own `FORWARDED_ALLOW_IPS` variable instead.
 - **A service out of reach, one line.** When Postgres or Keycloak cannot be reached, the line says what failed, with `error_type` and `error`, and no traceback: `database_unavailable`, `token_request_failed`, `jwks_refresh_failed`, `logout_revocation_failed`. At startup it is `database_connection_failed` or `auth_service_init_failed`; then uvicorn prints the traceback once, and the process exits with code 3.
 - **No access line.** uvicorn's access line is off: `request_completed` says the same, with the request id and the duration, and the access line also carries the query string. To have it back, delete the line that sets `uvicorn.access` to `WARNING` in `core/logging/config.py`.
 - **More processes.** With `--workers` or `--reload`, the parent process of uvicorn never calls the app factory, so its few lines, at start and stop, keep uvicorn's format. The image runs one process unless `SERVER_WORKERS` says otherwise: to scale, run more containers.
@@ -54,7 +55,7 @@ The app reads its settings from environment variables, and from `.env` in the ro
 
 There are two Postgres in `compose.yaml`: `db`, the app's, on `DATABASE_PORT` (5433), and `keycloak-db`, reachable only inside the stack.
 
-The variables you are most likely to change:
+The variables most likely to change:
 
 ```bash
 APP_ENVIRONMENT=development        # development | staging | production
