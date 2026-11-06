@@ -9,3 +9,5 @@ Short notes on the decisions that shape the project: the context, the decision, 
 | [0003](0003-refresh-token-in-a-cookie.md) | The refresh token travels only in an HttpOnly cookie |
 | [0004](0004-app-factory.md) | The app is built by a factory, `create_app()` |
 | [0005](0005-database.md) | SQLAlchemy is part of `core`; a feature with rules keeps it behind a port |
+| [0006](0006-errors.md) | One format for errors, and adapters translate the errors of their libraries |
+| [0007](0007-development-values.md) | Staging and production refuse to start on a development value |
