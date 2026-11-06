@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/Prgmturi/fastapi_starter/compare/v0.9.1...v0.9.2) (2026-11-06)
+
+
+### Bug Fixes
+
+* **deps:** move the base image to the digest with the fix for apt ([#90](https://github.com/Prgmturi/fastapi_starter/issues/90)) ([c1263b9](https://github.com/Prgmturi/fastapi_starter/commit/c1263b9f8333f3d336e9a454530c7b05421c16b4))
+
 ## [0.9.1](https://github.com/Prgmturi/fastapi_starter/compare/v0.9.0...v0.9.1) (2026-11-04)
 
 
