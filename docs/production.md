@@ -6,7 +6,7 @@ The stack of `compose.yaml` on one server, with `compose.prod.yaml` over it:
 docker compose -f compose.yaml -f compose.prod.yaml up -d
 ```
 
-What you need:
+What it takes:
 
 - a server with Docker and Docker Compose 2.24 or later (`compose.prod.yaml` uses the `!reset` and `!override` tags);
 - two DNS names pointing at it, one for the API and one for Keycloak (here `api.example.com` and `auth.example.com`), and their certificates, for example from certbot;
@@ -21,7 +21,7 @@ What you need:
 | Passwords and secrets | development values in the file | from the server's `.env`; compose stops while one is missing |
 | Keycloak | `start-dev`, the realm of `docker/keycloak/realm-dev.json` | `start`, HTTP behind the TLS proxy, no realm imported |
 | Ports | open on every interface | API and Keycloak on `127.0.0.1`, for the proxy; the databases on none |
-| Console of Keycloak | on the public address | on `127.0.0.1` only (`KC_HOSTNAME_ADMIN`) |
+| Console of Keycloak | on the public address | reached only through an SSH tunnel: the port is on `127.0.0.1`, and the proxy does not serve `/admin/` |
 | Logs | Docker's default, never rotated | 5 files of 10 MB per container |
 
 ## Before going live
@@ -33,7 +33,7 @@ Each line points to the section that explains it.
 - [ ] `KEYCLOAK_ALLOWED_REDIRECT_URIS` lists the callbacks of the frontend, exactly as the *Valid redirect URIs* of the client in Keycloak.
 - [ ] `SERVER_TRUSTED_HOSTS` names the domain of the API, and `SERVER_CORS_ORIGINS` the origin of the frontend.
 - [ ] The realm has an administrator of its own and the temporary one is deleted, brute force detection is on, and the realm of development is not imported: First start.
-- [ ] Nginx ends TLS for both names with `docs/nginx.conf`, and the console of Keycloak answers on `127.0.0.1` only: The proxy.
+- [ ] Nginx ends TLS for both names with `docs/nginx.conf`, and serves neither `/admin/` nor the realm `master`: The proxy. `KC_HOSTNAME_ADMIN` only tells Keycloak the address of the console: the port on `127.0.0.1` and Nginx are what protect it.
 - [ ] `curl -H "Host: api.example.com" http://127.0.0.1:8000/health/ready` answers 200. When the API does not start, its log names every value that production refuses ([operations.md](operations.md#settings)).
 - [ ] The refresh cookie keeps its defaults, `__Host-rt`, `Secure` and `SameSite=lax`: `compose.prod.yaml` passes no `AUTH_COOKIE_*`. Only for a frontend on another site, add `AUTH_COOKIE_SAMESITE: none` to the environment of `api` (`docs/frontend.md`).
 - [ ] Both databases are dumped on a schedule, the dumps leave the server, and a restore has been tried once: Backups.
@@ -76,13 +76,13 @@ Keycloak first, because the API fetches the realm's signing keys when it starts:
 docker compose -f compose.yaml -f compose.prod.yaml up -d --wait keycloak
 ```
 
-The console answers on the server only. From your machine, open a tunnel and log in at http://127.0.0.1:8080/admin/ with `KEYCLOAK_ADMIN_USER` and `KEYCLOAK_ADMIN_PASSWORD`:
+The console answers on the server only. From another machine, it takes a tunnel, then a login at http://127.0.0.1:8080/admin/ with `KEYCLOAK_ADMIN_USER` and `KEYCLOAK_ADMIN_PASSWORD`:
 
 ```bash
-ssh -L 8080:127.0.0.1:8080 you@your-server
+ssh -L 8080:127.0.0.1:8080 user@server
 ```
 
-1. In the realm `master`, create your own administrator (*Users*, *Add user*, then *Credentials* and *Role mapping*: `admin`). Log in with it, and delete the temporary one.
+1. In the realm `master`, create a real administrator (*Users*, *Add user*, then *Credentials* and *Role mapping*: `admin`). Log in with it, and delete the temporary one.
 2. Create the realm `fastapi-starter`, and in it the roles `superadmin`, `admin`, `collaborator` and `user`.
 3. Create the client `fastapi-backend`: *Client authentication* on, *Standard flow* only, *Valid redirect URIs* the frontend's callback URLs, exactly as in `KEYCLOAK_ALLOWED_REDIRECT_URIS`.
 4. In *Realm settings*, *Security defenses*, turn on *Brute force detection*.
@@ -100,7 +100,7 @@ curl -H "Host: api.example.com" http://127.0.0.1:8000/health/ready
 
 ## The proxy
 
-`docs/nginx.conf` goes in `/etc/nginx/conf.d/`, with your names and certificate paths. It:
+`docs/nginx.conf` goes in `/etc/nginx/conf.d/`, with the real names and certificate paths. It:
 
 - redirects HTTP to HTTPS, and ends TLS for both names;
 - sends the API `X-Request-ID` (Nginx's `$request_id`, so its log and the app's share the id) and `X-Forwarded-For`, which uvicorn trusts only from the stack's network;

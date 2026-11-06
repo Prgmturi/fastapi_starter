@@ -15,6 +15,6 @@ Features need a database, transactions that match requests, and migrations. Swap
 
 ## Consequences
 
-- Two ways to reach the database, and the README says when each fits: flat for a feature with no rules, three layers when the rules deserve tests without a database.
+- Two ways to reach the database, and `docs/architecture.md` says when each fits: flat for a feature with no rules, three layers when the rules deserve tests without a database.
 - The feature with a port maps rows to domain objects and back: more code, in exchange for a pure domain.
 - The naming convention is fixed since the first migration, of `notes`: changing it now renames constraints that exist.

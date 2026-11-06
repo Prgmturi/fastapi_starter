@@ -9,7 +9,7 @@ PostgreSQL, reached with SQLAlchemy 2 in async mode, and Alembic for the migrati
 - it commits when the route returns, before the response is sent;
 - it rolls back when anything fails.
 
-So a failed commit answers 500, never 201.
+So a failed commit answers 500, never 201 ([One request, all the way](architecture.md#one-request-all-the-way)).
 
 ## Repositories
 
@@ -32,21 +32,24 @@ class ProductRepository(BaseRepository[Product]):
     model = Product
 
 
-@router.get("/", response_model=list[ProductOut])
+@router.get("/")
 async def list_products(
     db: DbSession,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
     offset: Annotated[int, Query(ge=0)] = 0,
-):
-    return await ProductRepository(db).get_page(limit=limit, offset=offset)
+) -> list[ProductResponse]:
+    products = await ProductRepository(db).get_page(limit=limit, offset=offset)
+    return [ProductResponse.model_validate(product) for product in products]
 ```
+
+`Product` is a model on `Base`, and `ProductResponse` the schema of the answer, with `from_attributes=True`.
 
 - `get_page` sorts by primary key, so a row updated between two pages is neither skipped nor shown twice. A row deleted from an earlier page still shifts the next pages by one: that is the limit of paging by offset.
 - `get_page` refuses a `limit` above `MAX_PAGE_SIZE` (100). Bound the query parameter as above, and the client gets 422 instead of 500.
 
 ## A feature with rules of its own
 
-The example feature, `features/notes/`, keeps SQLAlchemy in its `persistence/` layer, behind a port of its domain (`domain/protocols.py`). Its repository, `SqlNoteRepository`, writes its own queries: each one filters by owner, and each row becomes a `Note` of the domain. The domain stays in plain Python, and its rules are tested without a database. The layers are described in [the architecture guide](architecture.md).
+The example feature, `features/notes/`, keeps SQLAlchemy in its `persistence/` layer, behind a port of its domain (`domain/protocols.py`). Its repository, `SqlNoteRepository`, writes its own queries: each one filters by owner, and each row becomes a `Note` of the domain. The domain stays in plain Python, and its rules are tested without a database. Why the two roads, and when each fits: [The database is not an adapter](architecture.md#the-database-is-not-an-adapter).
 
 ## Work after the response
 
@@ -76,6 +79,8 @@ async def start_rebuild(
 
 ## Migrations
 
+These commands run on the machine, so they need a `.env` ([Prepare the machine](development.md#prepare-the-machine)).
+
 ```bash
 uv run alembic upgrade head                                  # the database to the last migration
 uv run alembic revision --autogenerate -m "add products table"
@@ -84,7 +89,8 @@ uv run alembic downgrade -1                                  # one migration bac
 
 - **Where models live.** Define a model by subclassing `Base` from `core/database/base.py`, in a module called `models` under `features/`: `features/<name>/models.py`, or, as in the example, `features/notes/persistence/models.py`. `alembic/env.py` imports every such module, at any depth (`core/database/migrations.py`), so no model is left out of a migration. A model anywhere else would be: `tests/core/database/test_migrations.py` fails, and names it.
 - **No model at all.** `--autogenerate` then stops with an explanation, instead of writing a migration that drops every table of the database.
-- **Read it first.** Read the file Alembic writes in `alembic/versions/` before you commit it, and let ruff tidy it (`uv run ruff format`).
+- **The last migration first.** On a database behind the migrations, `--autogenerate` stops with `Target database is not up to date`: `alembic upgrade head` comes first.
+- **Read it first.** Read the file Alembic writes in `alembic/versions/` before committing it, and let ruff tidy it (`uv run ruff format`).
 - **Only `DATABASE_*`.** Migrations read no other setting, so they run before a new version starts, without the rest of the configuration. In `compose.yaml` the `migrate` service runs `alembic upgrade head` from the image of the app, and the API starts only after it succeeds.
 - **CI.** It runs every migration up to the last one, compares the result with the models (`alembic check`: a model changed without its migration fails the build), then goes down to the start and up again.
 
@@ -105,7 +111,7 @@ The pool settings have bounds in every environment, because SQLAlchemy reads som
 | `DATABASE_POOL_TIMEOUT`, `DATABASE_POOL_RECYCLE` | above 0 | `DATABASE_POOL_RECYCLE=0` opens a new connection for every query |
 | `DATABASE_CONNECT_TIMEOUT`, `DATABASE_COMMAND_TIMEOUT` | above 0 | seconds to connect, and seconds a query may run: a slower query answers 500 |
 
-A value out of range stops the startup, with an error that names the variable. `DATABASE_ECHO=true` writes every query to the logs with its values, so production refuses it.
+A value out of range stops the startup, with an error that names the variable. `DATABASE_ECHO=true` writes every query to the logs with its values, so staging and production refuse it.
 
 ## When Postgres cannot be reached
 
