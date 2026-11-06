@@ -201,9 +201,7 @@ A code that Keycloak refuses then takes one statement to simulate, and the whole
 
 ```python
 # tests/features/auth/test_router.py
-mock_oauth_provider.exchange_code.side_effect = UnauthorizedError(
-    "Invalid code"
-)
+mock_oauth_provider.exchange_code.side_effect = UnauthorizedError("Invalid code")
 ```
 
 The pieces fit together like this. At startup `bootstrap.py` provides the object on the left, and in a test `dependency_overrides` provides the one on the right:
@@ -275,6 +273,7 @@ class NoteService:
     # ...
     def __init__(self, repository: NoteRepository) -> None:
         self._repository = repository
+
     # ...
     async def get_note(self, owner_id: str, note_id: UUID) -> Note:
         # ...
