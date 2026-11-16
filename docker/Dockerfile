@@ -5,7 +5,7 @@
 # makes every build of a commit start from the same image, because the tag
 # moves whenever Debian or Python ship a fix. Both stages use the same one
 # (tests/test_dockerfile.py).
-FROM python:3.13-slim@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc AS builder
+FROM python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90 AS builder
 
 WORKDIR /app
 
@@ -44,7 +44,7 @@ RUN uv sync --locked --no-dev --no-editable
 # =============================================================================
 # A fresh base: only what is copied from the builder comes along, so no uv,
 # no build cache, no source tree.
-FROM python:3.13-slim@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc AS runtime
+FROM python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90 AS runtime
 
 WORKDIR /app
 
