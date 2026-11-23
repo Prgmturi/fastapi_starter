@@ -48,6 +48,13 @@ FROM python:3.13-slim@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637e
 
 WORKDIR /app
 
+# zlib1g: the base image still ships the version with CVE-2026-85091 and
+#   CVE-2026-76844; Debian has the fix. Remove this step once the base
+#   image carries zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1 or later.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --only-upgrade zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+
 # PYTHONUNBUFFERED=1: every line reaches docker logs at once, even when the
 #   process dies.
 # PYTHONDONTWRITEBYTECODE=1: no .pyc written at run time; the builder
