@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.3](https://github.com/Prgmturi/fastapi_starter/compare/v0.9.2...v0.9.3) (2026-11-23)
+
+
+### Bug Fixes
+
+* **deps:** bump keycloak/keycloak ([#94](https://github.com/Prgmturi/fastapi_starter/issues/94)) ([213cc0d](https://github.com/Prgmturi/fastapi_starter/commit/213cc0d903539485005aa7e4b29be8bc8aa613f8))
+* **deps:** bump opentelemetry-api from 1.45.1 to 1.45.2 ([#100](https://github.com/Prgmturi/fastapi_starter/issues/100)) ([97c0572](https://github.com/Prgmturi/fastapi_starter/commit/97c05728329a0de9d368df93d8cf422d625bf819))
+* **deps:** bump pydantic from 2.12.5 to 2.14.3 ([#92](https://github.com/Prgmturi/fastapi_starter/issues/92)) ([b52a7a8](https://github.com/Prgmturi/fastapi_starter/commit/b52a7a88521d5afffcaf5266a7fe4172a960d0ac))
+* **deps:** bump python in /docker in the base-image group ([#101](https://github.com/Prgmturi/fastapi_starter/issues/101)) ([d8ee9ef](https://github.com/Prgmturi/fastapi_starter/commit/d8ee9ef0593ff79c6ea05f5db582429290a219e7))
+* **deps:** update sqlalchemy[asyncio] requirement ([#98](https://github.com/Prgmturi/fastapi_starter/issues/98)) ([869a8bd](https://github.com/Prgmturi/fastapi_starter/commit/869a8bdd405447addd6e62dccf433f9834a8debb))
+* **deps:** update uvicorn[standard] requirement ([#93](https://github.com/Prgmturi/fastapi_starter/issues/93)) ([3e83c80](https://github.com/Prgmturi/fastapi_starter/commit/3e83c80bd65e53448049a52e0b7bf71234885e41))
+* **docker:** upgrade Debian packages to fix high CVEs in the image scan ([#103](https://github.com/Prgmturi/fastapi_starter/issues/103)) ([6d34a14](https://github.com/Prgmturi/fastapi_starter/commit/6d34a14da26bdca60dd217b65306ad59ade4d415))
+
 ## [0.9.2](https://github.com/Prgmturi/fastapi_starter/compare/v0.9.1...v0.9.2) (2026-11-06)
 
 
