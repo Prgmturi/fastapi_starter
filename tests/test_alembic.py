@@ -78,5 +78,5 @@ class TestAutogenerateSeesTheModels:
 
         assert result.returncode != 0
         assert "Base.metadata" not in result.stderr
-        assert "Connect call failed" in result.stderr
+        assert "ConnectionRefusedError" in result.stderr
         assert sorted(VERSIONS.iterdir()) == before
